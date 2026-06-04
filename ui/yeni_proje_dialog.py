@@ -132,6 +132,22 @@ class EtkenMaddeSatiri(QWidget):
         self.input_ad.setPlaceholderText("Etken madde adı")
         layout.addWidget(self.input_ad, 1)
 
+        # Katman ataması (çift katmanlı ürünlerde görünür)
+        self.combo_katman = QComboBox()
+        self.combo_katman.addItems(["Katman I", "Katman II"])
+        self.combo_katman.setFixedWidth(95)
+        self.combo_katman.setVisible(False)
+        self.combo_katman.setStyleSheet(f"""
+            QComboBox {{
+                border: 1px solid {RENK_KENARLIK};
+                border-radius: 5px;
+                padding: 3px 7px;
+                font-size: 11px;
+                background: {RENK_BG_BIRINCIL};
+            }}
+        """)
+        layout.addWidget(self.combo_katman)
+
         self.btn_sil = QPushButton("✕")
         self.btn_sil.setFixedSize(26, 26)
         self.btn_sil.setStyleSheet(f"""
@@ -151,6 +167,9 @@ class EtkenMaddeSatiri(QWidget):
         self.btn_sil.clicked.connect(lambda: self.silindi.emit(self))
         layout.addWidget(self.btn_sil)
 
+    def katman_gorunum_guncelle(self, cift_katman: bool):
+        self.combo_katman.setVisible(cift_katman)
+
     def numara_guncelle(self, no: int):
         self.no = no
         self.lbl_no.setText(f"Etken Madde {no}")
@@ -160,6 +179,10 @@ class EtkenMaddeSatiri(QWidget):
 
     def set_ad(self, ad: str):
         self.input_ad.setText(ad)
+
+    def get_katman(self) -> int:
+        """0 = Katman I, 1 = Katman II"""
+        return self.combo_katman.currentIndex()
 
 
 class YeniProjeDialog(QDialog):
@@ -482,6 +505,10 @@ class YeniProjeDialog(QDialog):
         else:
             self.btn_tek_katman.setChecked(False)
             self.btn_cift_katman.setChecked(True)
+        # Etken madde satırlarındaki katman dropdown'larını güncelle
+        cift = (katman == TabletYapisi.CIFT_KATMAN)
+        for satir in self._etken_maddeler:
+            satir.katman_gorunum_guncelle(cift)
 
     def _etken_ekle(self, ad: str = ""):
         no = len(self._etken_maddeler) + 1
@@ -552,6 +579,24 @@ class YeniProjeDialog(QDialog):
             em = EtkenMaddeSpek()
             em.ad = satir.get_ad()
             proje.etken_maddeler.append(em)
+
+        # Çift katmanlı ürünlerde bulk katman ataması
+        if proje.tablet_yapisi == TabletYapisi.CIFT_KATMAN.value:
+            from core.models import BulkKatmanSpek
+            k1 = BulkKatmanSpek(katman_adi="Katman I Bulk")
+            k2 = BulkKatmanSpek(katman_adi="Katman II Bulk")
+            for i, satir in enumerate(self._etken_maddeler):
+                if satir.get_katman() == 0:
+                    k1.etken_indeksler.append(i)
+                else:
+                    k2.etken_indeksler.append(i)
+            # Boş katman kalmışsa varsayılan ata
+            if not k1.etken_indeksler:
+                k1.etken_indeksler = [0] if proje.etken_maddeler else []
+            if not k2.etken_indeksler:
+                n = len(proje.etken_maddeler)
+                k2.etken_indeksler = [n-1] if n > 0 else []
+            proje.bulk_katmanlar = [k1, k2]
 
         self.proje_olusturuldu.emit(proje)
         self.accept()
