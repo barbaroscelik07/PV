@@ -24,6 +24,7 @@ a = Analysis(
         'ui.ana_pencere',
         'ui.spec_karti',
         'ui.yeni_proje_dialog',
+        'ui.birim_formul',
     ],
     hookspath=[],
     hooksconfig={},
