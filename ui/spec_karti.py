@@ -1278,16 +1278,6 @@ class SpecKartiWidget(QWidget):
         self.lbl_degisiklik.setVisible(False)
         tb_layout.addWidget(self.lbl_degisiklik)
 
-        btn_sablon_yukle = QPushButton("Şablon Yükle")
-        btn_sablon_yukle.setFixedHeight(30)
-        btn_sablon_yukle.clicked.connect(self._sablon_yukle)
-        tb_layout.addWidget(btn_sablon_yukle)
-
-        btn_sablon_kaydet = QPushButton("Şablon Kaydet")
-        btn_sablon_kaydet.setFixedHeight(30)
-        btn_sablon_kaydet.clicked.connect(self._sablon_kaydet)
-        tb_layout.addWidget(btn_sablon_kaydet)
-
         self.btn_kaydet = QPushButton("💾  Kaydet")
         self.btn_kaydet.setFixedHeight(30)
         self.btn_kaydet.setMinimumWidth(90)
