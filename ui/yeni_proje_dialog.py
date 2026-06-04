@@ -515,6 +515,9 @@ class YeniProjeDialog(QDialog):
         satir = EtkenMaddeSatiri(no, self.etken_container)
         if ad:
             satir.set_ad(ad)
+        # Mevcut katman durumunu yeni satıra uygula
+        cift = self.btn_cift_katman.isChecked()
+        satir.katman_gorunum_guncelle(cift)
         satir.silindi.connect(self._etken_sil)
         self._etken_maddeler.append(satir)
         self.etken_layout.addWidget(satir)
