@@ -39,8 +39,6 @@ jobs:
             --windowed `
             --icon pvdoc.ico `
             --paths "." `
-            --paths "ui" `
-            --paths "core" `
             --hidden-import ui `
             --hidden-import ui.stiller `
             --hidden-import ui.ana_pencere `
@@ -55,8 +53,6 @@ jobs:
             --hidden-import PyQt6.QtGui `
             --hidden-import PyQt6.sip `
             --add-data "pvdoc.ico;." `
-            --add-data "ui;ui" `
-            --add-data "core;core" `
             --exclude-module tkinter `
             --exclude-module matplotlib `
             --exclude-module numpy `
