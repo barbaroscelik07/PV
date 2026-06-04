@@ -12,6 +12,14 @@ from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
 
+# Tüm modülleri açıkça import et — PyInstaller bunları EXE'ye dahil eder
+import ui.stiller
+import ui.yeni_proje_dialog
+import ui.spec_karti
+import ui.birim_formul
+import ui.ana_pencere
+import core.models
+
 from ui.ana_pencere import AnaPencere
 
 
