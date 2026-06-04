@@ -148,6 +148,8 @@ class EtkenMaddeSpek:
 @dataclass
 class CekirdekTabletSpek:
     """Çekirdek tablet fiziksel spesifikasyonları."""
+    gorunus: str = ""
+
     # Ortalama Ağırlık
     ort_agirlik_hedef_mg: str = ""
     ort_agirlik_tolerans: str = "5.0"
