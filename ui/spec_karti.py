@@ -21,7 +21,7 @@ from ui.stiller import (
     RENK_PRIMARY, RENK_PRIMARY_ACIK, RENK_PRIMARY_KOYU,
     RENK_BG_BIRINCIL, RENK_BG_IKINCIL, RENK_KENARLIK,
     RENK_YAZI_BIRINCIL, RENK_YAZI_IKINCIL, RENK_YAZI_UCUNCUL,
-    RENK_YESIL, RENK_YESIL_BG
+    RENK_YESIL, RENK_YESIL_BG, FONT_AILESI
 )
 
 
@@ -1288,10 +1288,27 @@ class SpecKartiWidget(QWidget):
         btn_sablon_kaydet.clicked.connect(self._sablon_kaydet)
         tb_layout.addWidget(btn_sablon_kaydet)
 
-        self.btn_kaydet = QPushButton("Kaydet")
-        self.btn_kaydet.setObjectName("btnPrimary")
+        self.btn_kaydet = QPushButton("💾  Kaydet")
         self.btn_kaydet.setFixedHeight(30)
-        self.btn_kaydet.setMinimumWidth(80)
+        self.btn_kaydet.setMinimumWidth(90)
+        self.btn_kaydet.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {RENK_PRIMARY};
+                color: #FFFFFF;
+                border: none;
+                border-radius: 6px;
+                font-size: 12px;
+                font-weight: bold;
+                font-family: {FONT_AILESI};
+                padding: 0 14px;
+            }}
+            QPushButton:hover {{
+                background-color: {RENK_PRIMARY_KOYU};
+            }}
+            QPushButton:pressed {{
+                background-color: {RENK_PRIMARY_KOYU};
+            }}
+        """)
         self.btn_kaydet.clicked.connect(self._kaydet)
         tb_layout.addWidget(self.btn_kaydet)
 
