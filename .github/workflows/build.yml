@@ -33,7 +33,27 @@ jobs:
 
       - name: EXE olustur
         run: |
-          pyinstaller pvdoc.spec --noconfirm --clean
+          pyinstaller main.py `
+            --name "PV-DOC" `
+            --onefile `
+            --windowed `
+            --icon pvdoc.ico `
+            --paths . `
+            --collect-submodules ui `
+            --collect-submodules core `
+            --collect-submodules utils `
+            --add-data "pvdoc.ico;." `
+            --hidden-import PyQt6 `
+            --hidden-import PyQt6.QtWidgets `
+            --hidden-import PyQt6.QtCore `
+            --hidden-import PyQt6.QtGui `
+            --hidden-import PyQt6.sip `
+            --exclude-module tkinter `
+            --exclude-module matplotlib `
+            --exclude-module numpy `
+            --exclude-module pandas `
+            --noconfirm `
+            --clean
 
       - name: EXE varligini kontrol et
         run: |
