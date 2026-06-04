@@ -544,6 +544,17 @@ class CekirdekTabletSekmesi(QScrollArea):
         # Sütun başlıkları
         layout.addWidget(self._baslik_satiri())
 
+        # Görünüş
+        self.input_gorunus = QLineEdit()
+        self.input_gorunus.setPlaceholderText("Örn: Beyaz, yuvarlak, bikonveks tabletler")
+        self.input_gorunus.textChanged.connect(self.degisti)
+        self.row_gorunus = TestSatiri("Görünüş", self.input_gorunus)
+        self.row_gorunus.cb_ipk.setChecked(True)
+        self.row_gorunus.cb_sb.setChecked(True)
+        self.row_gorunus.cb_raf.setChecked(True)
+        self.row_gorunus.degisti.connect(self.degisti)
+        layout.addWidget(self.row_gorunus)
+
         # Test satırları
         # Ortalama Ağırlık
         self.agirlik_w = AgirlikSatiri()
@@ -681,6 +692,7 @@ class CekirdekTabletSekmesi(QScrollArea):
 
     def to_model(self) -> CekirdekTabletSpek:
         m = CekirdekTabletSpek()
+        m.gorunus = self.input_gorunus.text().strip()
         m.ort_agirlik_hedef_mg = self.agirlik_w.input_hedef.text().strip()
         m.ort_agirlik_tolerans = self.agirlik_w.input_tol.text().strip()
         m.ort_agirlik_ipk = self.row_agirlik.cb_ipk.isChecked()
@@ -730,6 +742,7 @@ class CekirdekTabletSekmesi(QScrollArea):
         return m
 
     def from_model(self, m: CekirdekTabletSpek):
+        self.input_gorunus.setText(getattr(m, 'gorunus', ''))
         self.agirlik_w.input_hedef.setText(m.ort_agirlik_hedef_mg)
         self.agirlik_w.input_tol.setText(m.ort_agirlik_tolerans)
         self.row_agirlik.cb_ipk.setChecked(m.ort_agirlik_ipk)
@@ -1255,7 +1268,14 @@ class SpecKartiWidget(QWidget):
         tb_layout.addStretch()
 
         self.lbl_degisiklik = QLabel("")
-        self.lbl_degisiklik.setStyleSheet(f"font-size: 11px; color: {RENK_YAZI_IKINCIL};")
+        self.lbl_degisiklik.setStyleSheet(f"""
+            font-size: 11px;
+            color: {RENK_PRIMARY};
+            background-color: {RENK_PRIMARY_ACIK};
+            border-radius: 4px;
+            padding: 2px 8px;
+        """)
+        self.lbl_degisiklik.setVisible(False)
         tb_layout.addWidget(self.lbl_degisiklik)
 
         btn_sablon_yukle = QPushButton("Şablon Yükle")
@@ -1347,11 +1367,19 @@ class SpecKartiWidget(QWidget):
 
         self._degisiklik_var = False
         self.lbl_degisiklik.setText("")
+        self.lbl_degisiklik.setVisible(False)
 
     def _on_degisti(self):
         self._degisiklik_var = True
-        self.lbl_degisiklik.setText("● Kaydedilmemiş değişiklikler var")
-        self.lbl_degisiklik.setStyleSheet(f"font-size: 10px; color: {RENK_PRIMARY};")
+        self.lbl_degisiklik.setText("● Kaydedilmemiş değişiklik")
+        self.lbl_degisiklik.setStyleSheet(f"""
+            font-size: 11px;
+            color: {RENK_PRIMARY_KOYU};
+            background-color: {RENK_PRIMARY_ACIK};
+            border-radius: 4px;
+            padding: 2px 8px;
+        """)
+        self.lbl_degisiklik.setVisible(True)
         self.degisti.emit()
 
     def _kaydet(self):
@@ -1380,7 +1408,14 @@ class SpecKartiWidget(QWidget):
 
         self._degisiklik_var = False
         self.lbl_degisiklik.setText("✓ Kaydedildi")
-        self.lbl_degisiklik.setStyleSheet(f"font-size: 10px; color: {RENK_YESIL};")
+        self.lbl_degisiklik.setStyleSheet(f"""
+            font-size: 11px;
+            color: {RENK_YESIL};
+            background-color: {RENK_YESIL_BG};
+            border-radius: 4px;
+            padding: 2px 8px;
+        """)
+        self.lbl_degisiklik.setVisible(True)
         self.kaydedildi.emit()
 
     def _sablon_kaydet(self):
