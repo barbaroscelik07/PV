@@ -21,6 +21,7 @@ from ui.stiller import (
 )
 from ui.spec_karti import SpecKartiWidget
 from ui.yeni_proje_dialog import YeniProjeDialog
+from ui.birim_formul import BirimFormulWidget
 
 import os
 
@@ -564,23 +565,40 @@ class AnaPencere(QMainWindow):
         self.btn_word.setEnabled(True)
         self.btn_pdf.setEnabled(True)
 
-        # Spec kartı widget'ını oluştur veya güncelle
+        # Spec kartı
         if isinstance(self._placeholder_widgets.get("spec_karti"), SpecKartiWidget):
             self._placeholder_widgets["spec_karti"].proje_guncelle(proje)
         else:
-            # Eski placeholder'ı kaldır ve SpecKarti widget ekle
-            eski = self._placeholder_widgets["spec_karti"]
-            self.stacked.removeWidget(eski)
-            eski.deleteLater()
-
             spec_w = SpecKartiWidget(proje)
-            spec_w.kaydedildi.connect(lambda: self.statusBar().showMessage("Spec kartı kaydedildi."))
-            spec_w.degisti.connect(lambda: self._kayit_isaretle())
-            self._placeholder_widgets["spec_karti"] = spec_w
-            self.stacked.addWidget(spec_w)
+            spec_w.kaydedildi.connect(
+                lambda: self.statusBar().showMessage("Spec kartı kaydedildi."))
+            spec_w.degisti.connect(self._kayit_isaretle)
+            self._widget_degistir("spec_karti", spec_w)
+
+        # Birim formül
+        if isinstance(self._placeholder_widgets.get("birim_formul"), BirimFormulWidget):
+            self._placeholder_widgets["birim_formul"].proje_guncelle(proje)
+        else:
+            bf_w = BirimFormulWidget(proje)
+            bf_w.kaydedildi.connect(
+                lambda: self.statusBar().showMessage("Birim formül kaydedildi."))
+            bf_w.degisti.connect(self._kayit_isaretle)
+            self._widget_degistir("birim_formul", bf_w)
 
         self._nav_sec("spec_karti")
         self.statusBar().showMessage(f"Proje yüklendi: {proje.urun_adi}")
+
+    def _widget_degistir(self, key: str, yeni_widget: QWidget):
+        """Placeholder widget'ı gerçek modül widget'ıyla değiştirir."""
+        eski = self._placeholder_widgets.get(key)
+        if eski is not None:
+            # Stacked'den kaldır
+            self.stacked.removeWidget(eski)
+            eski.hide()
+            eski.deleteLater()
+        # Yeni widget'ı ekle
+        self.stacked.addWidget(yeni_widget)
+        self._placeholder_widgets[key] = yeni_widget
 
     def _kayit_isaretle(self):
         self._kayit_gerekli = True
@@ -593,10 +611,15 @@ class AnaPencere(QMainWindow):
         if not self._proje:
             return
 
-        # Önce spec kartını kaydet
+        # Spec kartını kaydet
         spec_w = self._placeholder_widgets.get("spec_karti")
         if isinstance(spec_w, SpecKartiWidget):
             spec_w._kaydet()
+
+        # Birim formülü kaydet
+        bf_w = self._placeholder_widgets.get("birim_formul")
+        if isinstance(bf_w, BirimFormulWidget):
+            bf_w._kaydet()
 
         if not self._proje_dosyasi:
             self._farkli_kaydet()
