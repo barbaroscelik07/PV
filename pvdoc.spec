@@ -1,10 +1,23 @@
 # -*- mode: python ; coding: utf-8 -*-
 # PV-DOC PyInstaller Spec Dosyası
 
-import sys
-from pathlib import Path
+from PyInstaller.utils.hooks import collect_submodules
 
 block_cipher = None
+
+# ui ve core altındaki tüm modülleri otomatik topla
+hidden = (
+    collect_submodules('ui') +
+    collect_submodules('core') +
+    collect_submodules('utils') +
+    [
+        'PyQt6',
+        'PyQt6.QtWidgets',
+        'PyQt6.QtCore',
+        'PyQt6.QtGui',
+        'PyQt6.sip',
+    ]
+)
 
 a = Analysis(
     ['main.py'],
@@ -13,19 +26,7 @@ a = Analysis(
     datas=[
         ('pvdoc.ico', '.'),
     ],
-    hiddenimports=[
-        'PyQt6',
-        'PyQt6.QtWidgets',
-        'PyQt6.QtCore',
-        'PyQt6.QtGui',
-        'PyQt6.sip',
-        'core.models',
-        'ui.stiller',
-        'ui.ana_pencere',
-        'ui.spec_karti',
-        'ui.yeni_proje_dialog',
-        'ui.birim_formul',
-    ],
+    hiddenimports=hidden,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -64,12 +65,12 @@ exe = EXE(
     upx=True,
     upx_exclude=[],
     runtime_tmpdir=None,
-    console=False,          # GUI uygulaması — terminal penceresi yok
+    console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon='pvdoc.ico',       # Uygulama ikonu
+    icon='pvdoc.ico',
     version_file=None,
 )
