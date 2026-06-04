@@ -174,8 +174,22 @@ class BosPlaket(QWidget):
 
         self.btn_yeni = QPushButton("+ Yeni Proje Oluştur")
         self.btn_yeni.setObjectName("btnPrimary")
-        self.btn_yeni.setFixedHeight(40)
-        self.btn_yeni.setFixedWidth(220)
+        self.btn_yeni.setFixedHeight(44)
+        self.btn_yeni.setFixedWidth(240)
+        self.btn_yeni.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {RENK_PRIMARY};
+                border: none;
+                border-radius: 8px;
+                color: white;
+                font-size: 13px;
+                font-weight: bold;
+                font-family: {FONT_AILESI};
+            }}
+            QPushButton:hover {{
+                background-color: {RENK_PRIMARY_KOYU};
+            }}
+        """)
         layout.addWidget(self.btn_yeni, 0, Qt.AlignmentFlag.AlignCenter)
 
         self.btn_ac = QPushButton("📂 Mevcut Proje Aç")

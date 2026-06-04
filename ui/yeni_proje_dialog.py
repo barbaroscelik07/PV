@@ -431,9 +431,23 @@ class YeniProjeDialog(QDialog):
         alt_layout.addWidget(btn_iptal)
 
         btn_olustur = QPushButton("✓ Proje Oluştur")
-        btn_olustur.setObjectName("btnPrimary")
-        btn_olustur.setFixedHeight(32)
-        btn_olustur.setMinimumWidth(130)
+        btn_olustur.setFixedHeight(34)
+        btn_olustur.setMinimumWidth(140)
+        btn_olustur.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {RENK_PRIMARY};
+                border: none;
+                border-radius: 6px;
+                color: #FFFFFF;
+                font-size: 12px;
+                font-weight: bold;
+                font-family: {FONT_AILESI};
+                padding: 0 16px;
+            }}
+            QPushButton:hover {{
+                background-color: {RENK_PRIMARY_KOYU};
+            }}
+        """)
         btn_olustur.clicked.connect(self._olustur)
         alt_layout.addWidget(btn_olustur)
 
