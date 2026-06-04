@@ -1,0 +1,77 @@
+name: PV-DOC Build EXE
+
+on:
+  push:
+    branches: [ main, master ]
+    paths:
+      - '**.py'
+      - 'requirements.txt'
+      - 'pvdoc.ico'
+      - '.github/workflows/build.yml'
+  workflow_dispatch:
+
+jobs:
+  build-windows-exe:
+    runs-on: windows-latest
+    
+    steps:
+      - name: Kodu al
+        uses: actions/checkout@v4
+
+      - name: Python 3.11 kur
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Bagimlilikları yukle
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: EXE olustur
+        run: |
+          pyinstaller pvdoc.spec --noconfirm --clean
+
+      - name: EXE varligini kontrol et
+        run: |
+          if (Test-Path "dist/PV-DOC.exe") {
+            Write-Host "EXE basariyla olusturuldu"
+            $size = (Get-Item "dist/PV-DOC.exe").Length / 1MB
+            Write-Host "Boyut: $([math]::Round($size, 1)) MB"
+          } else {
+            Write-Host "HATA: EXE bulunamadi!"
+            exit 1
+          }
+
+      - name: Versiyon bilgisi olustur
+        run: |
+          $date = Get-Date -Format "yyyy-MM-dd HH:mm"
+          $commit = "${{ github.sha }}".Substring(0, 7)
+          $branch = "${{ github.ref_name }}"
+          $info = "Build: $date`nCommit: $commit`nBranch: $branch"
+          $info | Out-File -FilePath "dist/BUILD_INFO.txt" -Encoding UTF8
+          Write-Host $info
+
+      - name: Artifact olarak yukle
+        uses: actions/upload-artifact@v4
+        with:
+          name: PV-DOC-Windows-${{ github.run_number }}
+          path: |
+            dist/PV-DOC.exe
+            dist/BUILD_INFO.txt
+          retention-days: 90
+
+      - name: Release olustur (sadece tag push)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/PV-DOC.exe
+            dist/BUILD_INFO.txt
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
