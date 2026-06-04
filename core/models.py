@@ -155,7 +155,11 @@ class CekirdekTabletSpek:
     ort_agirlik_sb: bool = True
     ort_agirlik_raf: bool = True
 
-    # Ağırlık Tekdüzeliği (hedef ağırlıktan otomatik hesaplanır)
+    # Ağırlık Tekdüzeliği — manuel giriş
+    at_l1_alt: str = ""
+    at_l1_ust: str = ""
+    at_l2_alt: str = ""
+    at_l2_ust: str = ""
     at_ipk: bool = True
     at_sb: bool = True
     at_raf: bool = True
@@ -178,6 +182,7 @@ class CekirdekTabletSpek:
 
     # Sertlik
     sertlik_min: str = ""
+    sertlik_max: str = ""  # Opsiyonel
     sertlik_birim: str = "kP"
     sertlik_ipk: bool = True
     sertlik_sb: bool = True
@@ -273,7 +278,11 @@ class FilmTabletSpek:
     ort_agirlik_sb: bool = True
     ort_agirlik_raf: bool = True
 
-    # Ağırlık Tekdüzeliği
+    # Ağırlık Tekdüzeliği — manuel giriş
+    at_l1_alt: str = ""
+    at_l1_ust: str = ""
+    at_l2_alt: str = ""
+    at_l2_ust: str = ""
     at_ipk: bool = True
     at_sb: bool = True
     at_raf: bool = True
