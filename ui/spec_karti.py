@@ -152,6 +152,234 @@ class AgirlikSatiri(QFrame):
             self.lbl_hesap.setText("→ limit hesapla")
 
 
+class AgirlikTekduzeligiWidget(QWidget):
+    """
+    Ağırlık Tekdüzeliği manuel giriş widget'ı.
+    Limit 1 (maks. 2/20) ve Limit 2 (hiçbiri) alt/üst değerleri.
+    """
+
+    degisti = pyqtSignal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+
+        # Limit 1
+        lbl1 = QLabel("L1:")
+        lbl1.setStyleSheet(f"font-size: 10px; color: {RENK_YAZI_IKINCIL}; font-weight: bold;")
+        lbl1.setToolTip("Limit 1: Maks. 2/20 tablet bu aralığın dışına çıkabilir")
+        layout.addWidget(lbl1)
+
+        self.input_l1_alt = QLineEdit()
+        self.input_l1_alt.setPlaceholderText("Alt (mg)")
+        self.input_l1_alt.setFixedWidth(72)
+        self.input_l1_alt.setToolTip("Limit 1 Alt Sınır (mg)")
+        layout.addWidget(self.input_l1_alt)
+
+        layout.addWidget(QLabel("–"))
+
+        self.input_l1_ust = QLineEdit()
+        self.input_l1_ust.setPlaceholderText("Üst (mg)")
+        self.input_l1_ust.setFixedWidth(72)
+        self.input_l1_ust.setToolTip("Limit 1 Üst Sınır (mg)")
+        layout.addWidget(self.input_l1_ust)
+
+        # Ayırıcı
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.VLine)
+        sep.setStyleSheet(f"color: {RENK_KENARLIK};")
+        sep.setFixedWidth(1)
+        layout.addWidget(sep)
+
+        # Limit 2
+        lbl2 = QLabel("L2:")
+        lbl2.setStyleSheet(f"font-size: 10px; color: {RENK_YAZI_IKINCIL}; font-weight: bold;")
+        lbl2.setToolTip("Limit 2: Hiçbir tablet bu aralığın dışına çıkamaz")
+        layout.addWidget(lbl2)
+
+        self.input_l2_alt = QLineEdit()
+        self.input_l2_alt.setPlaceholderText("Alt (mg)")
+        self.input_l2_alt.setFixedWidth(72)
+        self.input_l2_alt.setToolTip("Limit 2 Alt Sınır (mg)")
+        layout.addWidget(self.input_l2_alt)
+
+        layout.addWidget(QLabel("–"))
+
+        self.input_l2_ust = QLineEdit()
+        self.input_l2_ust.setPlaceholderText("Üst (mg)")
+        self.input_l2_ust.setFixedWidth(72)
+        self.input_l2_ust.setToolTip("Limit 2 Üst Sınır (mg)")
+        layout.addWidget(self.input_l2_ust)
+
+        layout.addStretch()
+
+        for inp in [self.input_l1_alt, self.input_l1_ust,
+                    self.input_l2_alt, self.input_l2_ust]:
+            inp.textChanged.connect(self.degisti)
+
+
+class KalinlikWidget(QWidget):
+    """
+    Kalınlık giriş widget'ı.
+    Hedef girilince alt = hedef - 0.5, üst = hedef + 0.5 otomatik.
+    Kullanıcı override edebilir.
+    """
+
+    degisti = pyqtSignal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._auto_fill = True  # İlk doldurma otomatik
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+
+        layout.addWidget(QLabel("Hedef:"))
+        self.input_hedef = QLineEdit()
+        self.input_hedef.setPlaceholderText("mm")
+        self.input_hedef.setFixedWidth(60)
+        layout.addWidget(self.input_hedef)
+
+        layout.addWidget(QLabel("Alt:"))
+        self.input_alt = QLineEdit()
+        self.input_alt.setPlaceholderText("mm")
+        self.input_alt.setFixedWidth(60)
+        layout.addWidget(self.input_alt)
+
+        layout.addWidget(QLabel("Üst:"))
+        self.input_ust = QLineEdit()
+        self.input_ust.setPlaceholderText("mm")
+        self.input_ust.setFixedWidth(60)
+        layout.addWidget(self.input_ust)
+
+        self.lbl_hesap = QLabel("(±0.5 oto.)")
+        self.lbl_hesap.setStyleSheet(f"font-size: 9px; color: {RENK_YAZI_UCUNCUL};")
+        layout.addWidget(self.lbl_hesap)
+        layout.addStretch()
+
+        self.input_hedef.textChanged.connect(self._hedef_degisti)
+        self.input_alt.textChanged.connect(self.degisti)
+        self.input_ust.textChanged.connect(self.degisti)
+
+    def _hedef_degisti(self, metin: str):
+        self.degisti.emit()
+        try:
+            hedef = float(metin.replace(",", "."))
+            alt = round(hedef - 0.5, 2)
+            ust = round(hedef + 0.5, 2)
+            # Otomatik doldur — kullanıcı alt/üst'ü boş bırakmışsa
+            self._auto_fill = True
+            self.input_alt.blockSignals(True)
+            self.input_ust.blockSignals(True)
+            self.input_alt.setText(str(alt))
+            self.input_ust.setText(str(ust))
+            self.input_alt.blockSignals(False)
+            self.input_ust.blockSignals(False)
+            self._auto_fill = False
+            self.lbl_hesap.setStyleSheet(
+                f"font-size: 9px; color: {RENK_PRIMARY}; font-weight: bold;")
+        except ValueError:
+            self.lbl_hesap.setStyleSheet(
+                f"font-size: 9px; color: {RENK_YAZI_UCUNCUL};")
+
+
+class SertlikWidget(QWidget):
+    """
+    Sertlik giriş widget'ı.
+    Min. zorunlu, Max. opsiyonel (boş bırakılabilir).
+    """
+
+    degisti = pyqtSignal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+
+        layout.addWidget(QLabel("Min."))
+        self.input_min = QLineEdit()
+        self.input_min.setPlaceholderText("kP")
+        self.input_min.setFixedWidth(70)
+        self.input_min.setToolTip("Minimum sertlik değeri (zorunlu)")
+        layout.addWidget(self.input_min)
+
+        layout.addWidget(QLabel("Maks."))
+        self.input_max = QLineEdit()
+        self.input_max.setPlaceholderText("kP (opsiyonel)")
+        self.input_max.setFixedWidth(100)
+        self.input_max.setToolTip("Maksimum sertlik değeri (opsiyonel, boş bırakılabilir)")
+        layout.addWidget(self.input_max)
+
+        layout.addStretch()
+
+        self.input_min.textChanged.connect(self.degisti)
+        self.input_max.textChanged.connect(self.degisti)
+
+
+class CapWidget(QWidget):
+    """
+    Çap giriş widget'ı.
+    Hedef girilince alt = hedef - 0.3, üst = hedef + 0.3 otomatik.
+    Kullanıcı override edebilir.
+    """
+
+    degisti = pyqtSignal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+
+        layout.addWidget(QLabel("Hedef:"))
+        self.input_hedef = QLineEdit()
+        self.input_hedef.setPlaceholderText("mm")
+        self.input_hedef.setFixedWidth(60)
+        layout.addWidget(self.input_hedef)
+
+        layout.addWidget(QLabel("Alt:"))
+        self.input_alt = QLineEdit()
+        self.input_alt.setPlaceholderText("mm")
+        self.input_alt.setFixedWidth(60)
+        layout.addWidget(self.input_alt)
+
+        layout.addWidget(QLabel("Üst:"))
+        self.input_ust = QLineEdit()
+        self.input_ust.setPlaceholderText("mm")
+        self.input_ust.setFixedWidth(60)
+        layout.addWidget(self.input_ust)
+
+        self.lbl_hesap = QLabel("(±0.3 oto.)")
+        self.lbl_hesap.setStyleSheet(f"font-size: 9px; color: {RENK_YAZI_UCUNCUL};")
+        layout.addWidget(self.lbl_hesap)
+        layout.addStretch()
+
+        self.input_hedef.textChanged.connect(self._hedef_degisti)
+        self.input_alt.textChanged.connect(self.degisti)
+        self.input_ust.textChanged.connect(self.degisti)
+
+    def _hedef_degisti(self, metin: str):
+        self.degisti.emit()
+        try:
+            hedef = float(metin.replace(",", "."))
+            alt = round(hedef - 0.3, 2)
+            ust = round(hedef + 0.3, 2)
+            self.input_alt.blockSignals(True)
+            self.input_ust.blockSignals(True)
+            self.input_alt.setText(str(alt))
+            self.input_ust.setText(str(ust))
+            self.input_alt.blockSignals(False)
+            self.input_ust.blockSignals(False)
+            self.lbl_hesap.setStyleSheet(
+                f"font-size: 9px; color: {RENK_PRIMARY}; font-weight: bold;")
+        except ValueError:
+            self.lbl_hesap.setStyleSheet(
+                f"font-size: 9px; color: {RENK_YAZI_UCUNCUL};")
+
+
 class MiktarSatiri(QFrame):
     """Miktar tayini giriş satırı."""
 
@@ -327,34 +555,37 @@ class CekirdekTabletSekmesi(QScrollArea):
         self.row_agirlik.cb_raf.setChecked(True)
         layout.addWidget(self.row_agirlik)
 
-        # Ağırlık Tekdüzeliği (otomatik)
-        at_lbl = QLabel("Ağırlık Tekdüzeliği limitleri ort. ağırlıktan otomatik hesaplanır")
-        at_lbl.setStyleSheet(f"font-size: 10px; color: {RENK_YAZI_UCUNCUL}; font-style: italic;")
-        self.row_at = TestSatiri("Ağırlık Tekdüzeliği", at_lbl)
+        # Ağırlık Tekdüzeliği — manuel giriş
+        self.at_w = AgirlikTekduzeligiWidget()
+        self.at_w.degisti.connect(self.degisti)
+        self.row_at = TestSatiri("Ağırlık Tekdüzeliği", self.at_w)
         self.row_at.degisti.connect(self.degisti)
         self.row_at.cb_ipk.setChecked(True)
         self.row_at.cb_sb.setChecked(True)
         self.row_at.cb_raf.setChecked(True)
         layout.addWidget(self.row_at)
 
-        # Kalınlık
-        self.kalinlik_w = self._aralik_widget("Hedef mm", "Alt", "Üst")
+        # Kalınlık — hedef girilince ±0.5 otomatik
+        self.kalinlik_w = KalinlikWidget()
+        self.kalinlik_w.degisti.connect(self.degisti)
         self.row_kalinlik = TestSatiri("Kalınlık", self.kalinlik_w)
         self.row_kalinlik.degisti.connect(self.degisti)
         self.row_kalinlik.cb_ipk.setChecked(True)
         self.row_kalinlik.cb_sb.setChecked(True)
         layout.addWidget(self.row_kalinlik)
 
-        # Çap
-        self.cap_w = self._aralik_widget("Hedef mm", "Alt", "Üst")
+        # Çap — hedef girilince ±0.3 otomatik
+        self.cap_w = CapWidget()
+        self.cap_w.degisti.connect(self.degisti)
         self.row_cap = TestSatiri("Çap", self.cap_w)
         self.row_cap.degisti.connect(self.degisti)
         self.row_cap.cb_ipk.setChecked(True)
         self.row_cap.cb_sb.setChecked(True)
         layout.addWidget(self.row_cap)
 
-        # Sertlik
-        self.sertlik_w = self._min_widget("Min. kP")
+        # Sertlik — min zorunlu, max opsiyonel
+        self.sertlik_w = SertlikWidget()
+        self.sertlik_w.degisti.connect(self.degisti)
         self.row_sertlik = TestSatiri("Sertlik", self.sertlik_w)
         self.row_sertlik.degisti.connect(self.degisti)
         self.row_sertlik.cb_ipk.setChecked(True)
@@ -455,31 +686,35 @@ class CekirdekTabletSekmesi(QScrollArea):
         m.ort_agirlik_ipk = self.row_agirlik.cb_ipk.isChecked()
         m.ort_agirlik_sb = self.row_agirlik.cb_sb.isChecked()
         m.ort_agirlik_raf = self.row_agirlik.cb_raf.isChecked()
+
+        # Ağırlık Tekdüzeliği — manuel giriş
+        m.at_l1_alt = self.at_w.input_l1_alt.text().strip()
+        m.at_l1_ust = self.at_w.input_l1_ust.text().strip()
+        m.at_l2_alt = self.at_w.input_l2_alt.text().strip()
+        m.at_l2_ust = self.at_w.input_l2_ust.text().strip()
         m.at_ipk = self.row_at.cb_ipk.isChecked()
         m.at_sb = self.row_at.cb_sb.isChecked()
         m.at_raf = self.row_at.cb_raf.isChecked()
 
-        kal_inputs = self._get_inputs(self.kalinlik_w)
-        if len(kal_inputs) >= 3:
-            m.kalinlik_hedef = kal_inputs[0].text().strip()
-            m.kalinlik_alt = kal_inputs[1].text().strip()
-            m.kalinlik_ust = kal_inputs[2].text().strip()
+        # Kalınlık
+        m.kalinlik_hedef = self.kalinlik_w.input_hedef.text().strip()
+        m.kalinlik_alt = self.kalinlik_w.input_alt.text().strip()
+        m.kalinlik_ust = self.kalinlik_w.input_ust.text().strip()
         m.kalinlik_ipk = self.row_kalinlik.cb_ipk.isChecked()
         m.kalinlik_sb = self.row_kalinlik.cb_sb.isChecked()
         m.kalinlik_raf = self.row_kalinlik.cb_raf.isChecked()
 
-        cap_inputs = self._get_inputs(self.cap_w)
-        if len(cap_inputs) >= 3:
-            m.cap_hedef = cap_inputs[0].text().strip()
-            m.cap_alt = cap_inputs[1].text().strip()
-            m.cap_ust = cap_inputs[2].text().strip()
+        # Çap
+        m.cap_hedef = self.cap_w.input_hedef.text().strip()
+        m.cap_alt = self.cap_w.input_alt.text().strip()
+        m.cap_ust = self.cap_w.input_ust.text().strip()
         m.cap_ipk = self.row_cap.cb_ipk.isChecked()
         m.cap_sb = self.row_cap.cb_sb.isChecked()
         m.cap_raf = self.row_cap.cb_raf.isChecked()
 
-        sert_inputs = self._get_inputs(self.sertlik_w)
-        if sert_inputs:
-            m.sertlik_min = sert_inputs[0].text().strip()
+        # Sertlik
+        m.sertlik_min = self.sertlik_w.input_min.text().strip()
+        m.sertlik_max = self.sertlik_w.input_max.text().strip()
         m.sertlik_ipk = self.row_sertlik.cb_ipk.isChecked()
         m.sertlik_sb = self.row_sertlik.cb_sb.isChecked()
 
@@ -500,31 +735,47 @@ class CekirdekTabletSekmesi(QScrollArea):
         self.row_agirlik.cb_ipk.setChecked(m.ort_agirlik_ipk)
         self.row_agirlik.cb_sb.setChecked(m.ort_agirlik_sb)
         self.row_agirlik.cb_raf.setChecked(m.ort_agirlik_raf)
+
+        # Ağırlık Tekdüzeliği
+        self.at_w.input_l1_alt.setText(getattr(m, 'at_l1_alt', ''))
+        self.at_w.input_l1_ust.setText(getattr(m, 'at_l1_ust', ''))
+        self.at_w.input_l2_alt.setText(getattr(m, 'at_l2_alt', ''))
+        self.at_w.input_l2_ust.setText(getattr(m, 'at_l2_ust', ''))
         self.row_at.cb_ipk.setChecked(m.at_ipk)
         self.row_at.cb_sb.setChecked(m.at_sb)
         self.row_at.cb_raf.setChecked(m.at_raf)
 
-        kal_inputs = self._get_inputs(self.kalinlik_w)
-        if len(kal_inputs) >= 3:
-            kal_inputs[0].setText(m.kalinlik_hedef)
-            kal_inputs[1].setText(m.kalinlik_alt)
-            kal_inputs[2].setText(m.kalinlik_ust)
+        # Kalınlık — bloklayarak yükle (otomatik hesabı tetiklememek için)
+        self.kalinlik_w.input_hedef.blockSignals(True)
+        self.kalinlik_w.input_alt.blockSignals(True)
+        self.kalinlik_w.input_ust.blockSignals(True)
+        self.kalinlik_w.input_hedef.setText(m.kalinlik_hedef)
+        self.kalinlik_w.input_alt.setText(m.kalinlik_alt)
+        self.kalinlik_w.input_ust.setText(m.kalinlik_ust)
+        self.kalinlik_w.input_hedef.blockSignals(False)
+        self.kalinlik_w.input_alt.blockSignals(False)
+        self.kalinlik_w.input_ust.blockSignals(False)
         self.row_kalinlik.cb_ipk.setChecked(m.kalinlik_ipk)
         self.row_kalinlik.cb_sb.setChecked(m.kalinlik_sb)
         self.row_kalinlik.cb_raf.setChecked(m.kalinlik_raf)
 
-        cap_inputs = self._get_inputs(self.cap_w)
-        if len(cap_inputs) >= 3:
-            cap_inputs[0].setText(m.cap_hedef)
-            cap_inputs[1].setText(m.cap_alt)
-            cap_inputs[2].setText(m.cap_ust)
+        # Çap — bloklayarak yükle
+        self.cap_w.input_hedef.blockSignals(True)
+        self.cap_w.input_alt.blockSignals(True)
+        self.cap_w.input_ust.blockSignals(True)
+        self.cap_w.input_hedef.setText(m.cap_hedef)
+        self.cap_w.input_alt.setText(m.cap_alt)
+        self.cap_w.input_ust.setText(m.cap_ust)
+        self.cap_w.input_hedef.blockSignals(False)
+        self.cap_w.input_alt.blockSignals(False)
+        self.cap_w.input_ust.blockSignals(False)
         self.row_cap.cb_ipk.setChecked(m.cap_ipk)
         self.row_cap.cb_sb.setChecked(m.cap_sb)
         self.row_cap.cb_raf.setChecked(m.cap_raf)
 
-        sert_inputs = self._get_inputs(self.sertlik_w)
-        if sert_inputs:
-            sert_inputs[0].setText(m.sertlik_min)
+        # Sertlik
+        self.sertlik_w.input_min.setText(m.sertlik_min)
+        self.sertlik_w.input_max.setText(getattr(m, 'sertlik_max', ''))
         self.row_sertlik.cb_ipk.setChecked(m.sertlik_ipk)
         self.row_sertlik.cb_sb.setChecked(m.sertlik_sb)
 
@@ -577,10 +828,10 @@ class FilmTabletSekmesi(QScrollArea):
         self.row_agirlik.cb_raf.setChecked(True)
         layout.addWidget(self.row_agirlik)
 
-        # Ağırlık Tekdüzeliği
-        at_lbl = QLabel("Film tablet ağırlığından otomatik hesaplanır")
-        at_lbl.setStyleSheet(f"font-size: 10px; color: {RENK_YAZI_UCUNCUL}; font-style: italic;")
-        self.row_at = TestSatiri("Ağırlık Tekdüzeliği", at_lbl)
+        # Ağırlık Tekdüzeliği — manuel giriş
+        self.at_w = AgirlikTekduzeligiWidget()
+        self.at_w.degisti.connect(self.degisti)
+        self.row_at = TestSatiri("Ağırlık Tekdüzeliği", self.at_w)
         self.row_at.cb_ipk.setChecked(True)
         self.row_at.cb_sb.setChecked(True)
         self.row_at.cb_raf.setChecked(True)
@@ -625,6 +876,10 @@ class FilmTabletSekmesi(QScrollArea):
         m.ort_agirlik_ipk = self.row_agirlik.cb_ipk.isChecked()
         m.ort_agirlik_sb = self.row_agirlik.cb_sb.isChecked()
         m.ort_agirlik_raf = self.row_agirlik.cb_raf.isChecked()
+        m.at_l1_alt = self.at_w.input_l1_alt.text().strip()
+        m.at_l1_ust = self.at_w.input_l1_ust.text().strip()
+        m.at_l2_alt = self.at_w.input_l2_alt.text().strip()
+        m.at_l2_ust = self.at_w.input_l2_ust.text().strip()
         m.at_ipk = self.row_at.cb_ipk.isChecked()
         m.at_sb = self.row_at.cb_sb.isChecked()
         m.at_raf = self.row_at.cb_raf.isChecked()
@@ -640,6 +895,10 @@ class FilmTabletSekmesi(QScrollArea):
         self.row_agirlik.cb_ipk.setChecked(m.ort_agirlik_ipk)
         self.row_agirlik.cb_sb.setChecked(m.ort_agirlik_sb)
         self.row_agirlik.cb_raf.setChecked(m.ort_agirlik_raf)
+        self.at_w.input_l1_alt.setText(getattr(m, 'at_l1_alt', ''))
+        self.at_w.input_l1_ust.setText(getattr(m, 'at_l1_ust', ''))
+        self.at_w.input_l2_alt.setText(getattr(m, 'at_l2_alt', ''))
+        self.at_w.input_l2_ust.setText(getattr(m, 'at_l2_ust', ''))
         self.row_at.cb_ipk.setChecked(m.at_ipk)
         self.row_at.cb_sb.setChecked(m.at_sb)
         self.row_at.cb_raf.setChecked(m.at_raf)
@@ -996,7 +1255,7 @@ class SpecKartiWidget(QWidget):
         tb_layout.addStretch()
 
         self.lbl_degisiklik = QLabel("")
-        self.lbl_degisiklik.setStyleSheet(f"font-size: 10px; color: {RENK_YAZI_UCUNCUL};")
+        self.lbl_degisiklik.setStyleSheet(f"font-size: 11px; color: {RENK_YAZI_IKINCIL};")
         tb_layout.addWidget(self.lbl_degisiklik)
 
         btn_sablon_yukle = QPushButton("Şablon Yükle")
