@@ -1,13 +1,12 @@
 """
 PV-DOC — Veri Modelleri
-Tüm proje verisi bu modüllerde tutulur ve JSON/SQLite ile kaydedilir.
+Tüm proje verisi bu modüllerde tutulur ve JSON ile kaydedilir.
 """
 
 from dataclasses import dataclass, field
-from typing import List, Optional, Dict, Any
+from typing import List, Dict
 from enum import Enum
 import json
-import os
 
 
 class UrunFormu(Enum):
@@ -31,6 +30,8 @@ class LimitTipi(Enum):
     BILGI_AMACLI = "Bilgi Amaçlıdır"
 
 
+# ─── İmpürite ─────────────────────────────────────────────────────────────────
+
 @dataclass
 class ImpuriteSpek:
     ad: str = ""
@@ -42,10 +43,8 @@ class ImpuriteSpek:
 
     def to_dict(self) -> dict:
         return {
-            "ad": self.ad,
-            "limit_tipi": self.limit_tipi,
-            "deger": self.deger,
-            "ipk": self.ipk,
+            "ad": self.ad, "limit_tipi": self.limit_tipi,
+            "deger": self.deger, "ipk": self.ipk,
             "serbest_birakma": self.serbest_birakma,
             "raf_omru": self.raf_omru,
         }
@@ -53,89 +52,73 @@ class ImpuriteSpek:
     @classmethod
     def from_dict(cls, d: dict) -> "ImpuriteSpek":
         return cls(
-            ad=d.get("ad", ""),
-            limit_tipi=d.get("limit_tipi", "Maks. %"),
-            deger=d.get("deger", ""),
-            ipk=d.get("ipk", False),
+            ad=d.get("ad", ""), limit_tipi=d.get("limit_tipi", "Maks. %"),
+            deger=d.get("deger", ""), ipk=d.get("ipk", False),
             serbest_birakma=d.get("serbest_birakma", True),
             raf_omru=d.get("raf_omru", True),
         )
 
 
+# ─── Etken Madde Analitik Spek ────────────────────────────────────────────────
+
 @dataclass
-class EtkenMaddeSpek:
-    """Bir etken maddeye ait tüm analitik spesifikasyonlar."""
-    ad: str = ""
-    gorunus: str = ""
+class EtkenMaddeAnalitikSpek:
+    """
+    Bir etken maddeye ait analitik spesifikasyonlar.
+    Bulk, Çekirdek Tablet ve Film Tablet için ortak kullanılır.
+    Her operasyon kendi checkbox'larını taşır.
+    """
+    ad: str = ""  # Etken madde adı (referans)
 
-    # Elek Testi
-    elek_spek: str = "Bilgi amaçlıdır."
-    elek_ipk: bool = True
-
-    # Bulk Dansite
-    bulk_spek: str = "Bilgi amaçlıdır."
-    bulk_ipk: bool = True
-
-    # Tap Dansite
-    tap_spek: str = "Bilgi amaçlıdır."
-    tap_ipk: bool = True
-
-    # Karışım Tekdüzeliği
-    kt_alt: str = "85.0"
-    kt_ust: str = "115.0"
-    kt_ipk: bool = False
-    kt_serbest_birakma: bool = False
-    kt_raf_omru: bool = False
-
-    # Miktar Tayini (Serbest Bırakma ±5%, Raf Ömrü ±10% otomatik)
-    miktar_hedef_mg: str = ""
+    # Miktar Tayini — tüm operasyonlarda aynı spek, bir kez girilir
+    miktar_hedef: str = ""
     miktar_birim: str = "mg/ftb"
     miktar_tolerans: str = "5.0"
-    miktar_serbest_birakma: bool = True
-    miktar_raf_omru: bool = True
+    miktar_ipk: bool = False
+    miktar_sb: bool = True
+    miktar_raf: bool = True
 
-    # Dissolüsyon
+    # Teşhis — sabit metin, her operasyonda var
+    teshis_ipk_bulk: bool = True
+    teshis_ipk_cekirdek: bool = False
+    teshis_ipk_film: bool = False
+
+    # Dissolüsyon — Bulk'ta yok, Çekirdek ve Film'de var
     dis_min_q: str = "80.0"
     dis_sure_dk: str = "45"
-    dis_serbest_birakma: bool = True
-    dis_raf_omru: bool = True
+    dis_sb: bool = True
+    dis_raf: bool = True
 
-    # İmpüriteler
+    # İlgili Bileşikler (İmpüriteler)
     impuriteler: List[ImpuriteSpek] = field(default_factory=list)
-
-    # Mikrobiyolojik (sabit değerler)
-    mikrobiyolojik_dahil: bool = True
+    imp_ipk: bool = False
+    imp_sb: bool = True
+    imp_raf: bool = True
 
     def to_dict(self) -> dict:
         return {
             "ad": self.ad,
-            "gorunus": self.gorunus,
-            "elek_spek": self.elek_spek,
-            "elek_ipk": self.elek_ipk,
-            "bulk_spek": self.bulk_spek,
-            "bulk_ipk": self.bulk_ipk,
-            "tap_spek": self.tap_spek,
-            "tap_ipk": self.tap_ipk,
-            "kt_alt": self.kt_alt,
-            "kt_ust": self.kt_ust,
-            "kt_ipk": self.kt_ipk,
-            "kt_serbest_birakma": self.kt_serbest_birakma,
-            "kt_raf_omru": self.kt_raf_omru,
-            "miktar_hedef_mg": self.miktar_hedef_mg,
+            "miktar_hedef": self.miktar_hedef,
             "miktar_birim": self.miktar_birim,
             "miktar_tolerans": self.miktar_tolerans,
-            "miktar_serbest_birakma": self.miktar_serbest_birakma,
-            "miktar_raf_omru": self.miktar_raf_omru,
+            "miktar_ipk": self.miktar_ipk,
+            "miktar_sb": self.miktar_sb,
+            "miktar_raf": self.miktar_raf,
+            "teshis_ipk_bulk": self.teshis_ipk_bulk,
+            "teshis_ipk_cekirdek": self.teshis_ipk_cekirdek,
+            "teshis_ipk_film": self.teshis_ipk_film,
             "dis_min_q": self.dis_min_q,
             "dis_sure_dk": self.dis_sure_dk,
-            "dis_serbest_birakma": self.dis_serbest_birakma,
-            "dis_raf_omru": self.dis_raf_omru,
+            "dis_sb": self.dis_sb,
+            "dis_raf": self.dis_raf,
             "impuriteler": [i.to_dict() for i in self.impuriteler],
-            "mikrobiyolojik_dahil": self.mikrobiyolojik_dahil,
+            "imp_ipk": self.imp_ipk,
+            "imp_sb": self.imp_sb,
+            "imp_raf": self.imp_raf,
         }
 
     @classmethod
-    def from_dict(cls, d: dict) -> "EtkenMaddeSpek":
+    def from_dict(cls, d: dict) -> "EtkenMaddeAnalitikSpek":
         obj = cls()
         for k, v in d.items():
             if k == "impuriteler":
@@ -145,19 +128,84 @@ class EtkenMaddeSpek:
         return obj
 
 
+# ─── Bulk Katman Spek ─────────────────────────────────────────────────────────
+
+@dataclass
+class BulkKatmanSpek:
+    """
+    Tek bir bulk katmanına ait spesifikasyonlar.
+    Tek katmanda: 1 adet BulkKatmanSpek ("Bulk Karışımı")
+    Çift katmanda: 2 adet BulkKatmanSpek ("Katman I Bulk", "Katman II Bulk")
+    """
+    katman_adi: str = "Bulk Karışımı"  # "Katman I Bulk" veya "Katman II Bulk"
+
+    # Genel — tüm katman için tek spek
+    gorunus: str = ""
+    gorunus_ipk: bool = True
+
+    elek_ipk: bool = True
+    bulk_dans_ipk: bool = True
+    tap_dans_ipk: bool = True
+
+    # Mikrobiyolojik — katman başına tek spek
+    mikro_ipk: bool = False
+    mikro_sb: bool = False
+    mikro_raf: bool = False
+
+    # Karışım Tekdüzeliği — katmandaki her etken için
+    kt_alt: str = "85.0"
+    kt_ust: str = "115.0"
+    kt_ipk: bool = False
+    kt_sb: bool = False
+    kt_raf: bool = False
+
+    # Bu katmana ait etken madde indeksleri (ProjeVerisi.etken_maddeler listesine index)
+    etken_indeksler: List[int] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        return {
+            "katman_adi": self.katman_adi,
+            "gorunus": self.gorunus,
+            "gorunus_ipk": self.gorunus_ipk,
+            "elek_ipk": self.elek_ipk,
+            "bulk_dans_ipk": self.bulk_dans_ipk,
+            "tap_dans_ipk": self.tap_dans_ipk,
+            "mikro_ipk": self.mikro_ipk,
+            "mikro_sb": self.mikro_sb,
+            "mikro_raf": self.mikro_raf,
+            "kt_alt": self.kt_alt,
+            "kt_ust": self.kt_ust,
+            "kt_ipk": self.kt_ipk,
+            "kt_sb": self.kt_sb,
+            "kt_raf": self.kt_raf,
+            "etken_indeksler": self.etken_indeksler,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "BulkKatmanSpek":
+        obj = cls()
+        for k, v in d.items():
+            if hasattr(obj, k):
+                setattr(obj, k, v)
+        return obj
+
+
+# ─── Çekirdek Tablet Fiziksel Spek ────────────────────────────────────────────
+
 @dataclass
 class CekirdekTabletSpek:
     """Çekirdek tablet fiziksel spesifikasyonları."""
     gorunus: str = ""
+    gorunus_ipk: bool = True
+    gorunus_sb: bool = True
+    gorunus_raf: bool = True
 
-    # Ortalama Ağırlık
     ort_agirlik_hedef_mg: str = ""
     ort_agirlik_tolerans: str = "5.0"
     ort_agirlik_ipk: bool = True
     ort_agirlik_sb: bool = True
     ort_agirlik_raf: bool = True
 
-    # Ağırlık Tekdüzeliği — manuel giriş
     at_l1_alt: str = ""
     at_l1_ust: str = ""
     at_l2_alt: str = ""
@@ -166,7 +214,6 @@ class CekirdekTabletSpek:
     at_sb: bool = True
     at_raf: bool = True
 
-    # Kalınlık
     kalinlik_hedef: str = ""
     kalinlik_alt: str = ""
     kalinlik_ust: str = ""
@@ -174,7 +221,6 @@ class CekirdekTabletSpek:
     kalinlik_sb: bool = True
     kalinlik_raf: bool = False
 
-    # Çap
     cap_hedef: str = ""
     cap_alt: str = ""
     cap_ust: str = ""
@@ -182,82 +228,46 @@ class CekirdekTabletSpek:
     cap_sb: bool = True
     cap_raf: bool = False
 
-    # Sertlik
     sertlik_min: str = ""
-    sertlik_max: str = ""  # Opsiyonel
+    sertlik_max: str = ""
     sertlik_birim: str = "kP"
     sertlik_ipk: bool = True
     sertlik_sb: bool = True
     sertlik_raf: bool = False
 
-    # Aşınma (Friabilite)
     asinma_max: str = "1.0"
     asinma_ipk: bool = True
     asinma_sb: bool = True
     asinma_raf: bool = False
 
-    # Dağılma — tablet baskı: 15 dk sabit
     dagılma_ipk: bool = True
     dagılma_sb: bool = True
     dagılma_raf: bool = False
 
+    # Mikrobiyolojik — çekirdek tablet için tek
+    mikro_ipk: bool = False
+    mikro_sb: bool = False
+    mikro_raf: bool = False
+
     def ort_agirlik_alt(self) -> float:
         try:
-            hedef = float(self.ort_agirlik_hedef_mg)
-            tol = float(self.ort_agirlik_tolerans)
-            return round(hedef * (1 - tol / 100), 2)
+            return round(float(self.ort_agirlik_hedef_mg) * (1 - float(self.ort_agirlik_tolerans) / 100), 2)
         except (ValueError, ZeroDivisionError):
             return 0.0
 
     def ort_agirlik_ust(self) -> float:
         try:
-            hedef = float(self.ort_agirlik_hedef_mg)
-            tol = float(self.ort_agirlik_tolerans)
-            return round(hedef * (1 + tol / 100), 2)
+            return round(float(self.ort_agirlik_hedef_mg) * (1 + float(self.ort_agirlik_tolerans) / 100), 2)
         except (ValueError, ZeroDivisionError):
             return 0.0
 
     def ort_agirlik_spek_str(self) -> str:
         if not self.ort_agirlik_hedef_mg:
             return ""
-        return (
-            f"{self.ort_agirlik_hedef_mg} mg ±%{self.ort_agirlik_tolerans} "
-            f"({self.ort_agirlik_alt()} – {self.ort_agirlik_ust()} mg)"
-        )
-
-    def at_limit1_alt(self) -> float:
-        return self.ort_agirlik_alt()
-
-    def at_limit1_ust(self) -> float:
-        return self.ort_agirlik_ust()
-
-    def at_limit2_alt(self) -> float:
-        try:
-            hedef = float(self.ort_agirlik_hedef_mg)
-            return round(hedef * 0.90, 2)
-        except ValueError:
-            return 0.0
-
-    def at_limit2_ust(self) -> float:
-        try:
-            hedef = float(self.ort_agirlik_hedef_mg)
-            return round(hedef * 1.10, 2)
-        except ValueError:
-            return 0.0
-
-    def at_spek_str(self) -> str:
-        if not self.ort_agirlik_hedef_mg:
-            return ""
-        return (
-            f"≤{self.at_limit1_alt()} veya ≥{self.at_limit1_ust()} mg (maks. 2/20); "
-            f"Hiçbiri: ≤{self.at_limit2_alt()} veya ≥{self.at_limit2_ust()} mg"
-        )
+        return f"{self.ort_agirlik_hedef_mg} mg ±%{self.ort_agirlik_tolerans} ({self.ort_agirlik_alt()} – {self.ort_agirlik_ust()} mg)"
 
     def to_dict(self) -> dict:
-        d = {}
-        for k, v in self.__dict__.items():
-            d[k] = v
-        return d
+        return {k: v for k, v in self.__dict__.items()}
 
     @classmethod
     def from_dict(cls, d: dict) -> "CekirdekTabletSpek":
@@ -268,19 +278,22 @@ class CekirdekTabletSpek:
         return obj
 
 
+# ─── Film Tablet Fiziksel Spek ────────────────────────────────────────────────
+
 @dataclass
 class FilmTabletSpek:
     """Film tablet fiziksel spesifikasyonları."""
     gorunus: str = ""
+    gorunus_ipk: bool = True
+    gorunus_sb: bool = True
+    gorunus_raf: bool = True
 
-    # Ortalama Ağırlık
     ort_agirlik_hedef_mg: str = ""
     ort_agirlik_tolerans: str = "5.0"
     ort_agirlik_ipk: bool = True
     ort_agirlik_sb: bool = True
     ort_agirlik_raf: bool = True
 
-    # Ağırlık Tekdüzeliği — manuel giriş
     at_l1_alt: str = ""
     at_l1_ust: str = ""
     at_l2_alt: str = ""
@@ -289,34 +302,31 @@ class FilmTabletSpek:
     at_sb: bool = True
     at_raf: bool = True
 
-    # Dağılma — film kaplama: 30 dk sabit
     dagılma_ipk: bool = True
     dagılma_sb: bool = True
     dagılma_raf: bool = False
 
+    # Mikrobiyolojik — film tablet için tek
+    mikro_ipk: bool = False
+    mikro_sb: bool = False
+    mikro_raf: bool = False
+
     def ort_agirlik_alt(self) -> float:
         try:
-            hedef = float(self.ort_agirlik_hedef_mg)
-            tol = float(self.ort_agirlik_tolerans)
-            return round(hedef * (1 - tol / 100), 2)
+            return round(float(self.ort_agirlik_hedef_mg) * (1 - float(self.ort_agirlik_tolerans) / 100), 2)
         except (ValueError, ZeroDivisionError):
             return 0.0
 
     def ort_agirlik_ust(self) -> float:
         try:
-            hedef = float(self.ort_agirlik_hedef_mg)
-            tol = float(self.ort_agirlik_tolerans)
-            return round(hedef * (1 + tol / 100), 2)
+            return round(float(self.ort_agirlik_hedef_mg) * (1 + float(self.ort_agirlik_tolerans) / 100), 2)
         except (ValueError, ZeroDivisionError):
             return 0.0
 
     def ort_agirlik_spek_str(self) -> str:
         if not self.ort_agirlik_hedef_mg:
             return ""
-        return (
-            f"{self.ort_agirlik_hedef_mg} mg ±%{self.ort_agirlik_tolerans} "
-            f"({self.ort_agirlik_alt()} – {self.ort_agirlik_ust()} mg)"
-        )
+        return f"{self.ort_agirlik_hedef_mg} mg ±%{self.ort_agirlik_tolerans} ({self.ort_agirlik_alt()} – {self.ort_agirlik_ust()} mg)"
 
     def to_dict(self) -> dict:
         return {k: v for k, v in self.__dict__.items()}
@@ -330,9 +340,60 @@ class FilmTabletSpek:
         return obj
 
 
+# ─── Eski EtkenMaddeSpek (geriye dönük uyumluluk) ────────────────────────────
+
+@dataclass
+class EtkenMaddeSpek:
+    """
+    Geriye dönük uyumluluk için korundu.
+    Yeni kod EtkenMaddeAnalitikSpek kullanır.
+    """
+    ad: str = ""
+    gorunus: str = ""
+    elek_spek: str = "Bilgi amaçlıdır."
+    elek_ipk: bool = True
+    bulk_spek: str = "Bilgi amaçlıdır."
+    bulk_ipk: bool = True
+    tap_spek: str = "Bilgi amaçlıdır."
+    tap_ipk: bool = True
+    kt_alt: str = "85.0"
+    kt_ust: str = "115.0"
+    kt_ipk: bool = False
+    kt_serbest_birakma: bool = False
+    kt_raf_omru: bool = False
+    miktar_hedef_mg: str = ""
+    miktar_birim: str = "mg/ftb"
+    miktar_tolerans: str = "5.0"
+    miktar_serbest_birakma: bool = True
+    miktar_raf_omru: bool = True
+    dis_min_q: str = "80.0"
+    dis_sure_dk: str = "45"
+    dis_serbest_birakma: bool = True
+    dis_raf_omru: bool = True
+    impuriteler: List[ImpuriteSpek] = field(default_factory=list)
+    mikrobiyolojik_dahil: bool = True
+
+    def to_dict(self) -> dict:
+        d = {k: v for k, v in self.__dict__.items() if k != "impuriteler"}
+        d["impuriteler"] = [i.to_dict() for i in self.impuriteler]
+        return d
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "EtkenMaddeSpek":
+        obj = cls()
+        for k, v in d.items():
+            if k == "impuriteler":
+                obj.impuriteler = [ImpuriteSpek.from_dict(i) for i in v]
+            elif hasattr(obj, k):
+                setattr(obj, k, v)
+        return obj
+
+
+# ─── Ana Proje Verisi ─────────────────────────────────────────────────────────
+
 @dataclass
 class ProjeVerisi:
-    """Ana proje veri modeli — tüm modüllerin verisi burada."""
+    """Ana proje veri modeli."""
 
     # Temel Bilgiler
     firma_adi: str = ""
@@ -350,14 +411,16 @@ class ProjeVerisi:
     seri_3_no: str = ""
     seri_boyutu: str = ""
 
-    # Etken Maddeler
+    # Etken Madde Listesi (sadece ad ve katman ataması)
     etken_maddeler: List[EtkenMaddeSpek] = field(default_factory=list)
 
-    # Spec Kartı
+    # Spec Kartı — Yeni yapı
     cekirdek_spek: CekirdekTabletSpek = field(default_factory=CekirdekTabletSpek)
     film_spek: FilmTabletSpek = field(default_factory=FilmTabletSpek)
+    bulk_katmanlar: List[BulkKatmanSpek] = field(default_factory=list)
+    etken_analitik_spekler: List[EtkenMaddeAnalitikSpek] = field(default_factory=list)
 
-    # Modül verileri (ileri aşamalarda doldurulacak)
+    # Modül verileri
     birim_formul_satirlar: List[Dict] = field(default_factory=list)
     pvp_notlar: List[Dict] = field(default_factory=list)
     pvr_notlar: List[Dict] = field(default_factory=list)
@@ -388,6 +451,8 @@ class ProjeVerisi:
             "etken_maddeler": [e.to_dict() for e in self.etken_maddeler],
             "cekirdek_spek": self.cekirdek_spek.to_dict(),
             "film_spek": self.film_spek.to_dict(),
+            "bulk_katmanlar": [b.to_dict() for b in self.bulk_katmanlar],
+            "etken_analitik_spekler": [e.to_dict() for e in self.etken_analitik_spekler],
             "birim_formul_satirlar": self.birim_formul_satirlar,
             "pvp_notlar": self.pvp_notlar,
             "pvr_notlar": self.pvr_notlar,
@@ -417,13 +482,13 @@ class ProjeVerisi:
         obj.seri_2_no = d.get("seri_2_no", "")
         obj.seri_3_no = d.get("seri_3_no", "")
         obj.seri_boyutu = d.get("seri_boyutu", "")
-        obj.etken_maddeler = [
-            EtkenMaddeSpek.from_dict(e) for e in d.get("etken_maddeler", [])
-        ]
+        obj.etken_maddeler = [EtkenMaddeSpek.from_dict(e) for e in d.get("etken_maddeler", [])]
         if "cekirdek_spek" in d:
             obj.cekirdek_spek = CekirdekTabletSpek.from_dict(d["cekirdek_spek"])
         if "film_spek" in d:
             obj.film_spek = FilmTabletSpek.from_dict(d["film_spek"])
+        obj.bulk_katmanlar = [BulkKatmanSpek.from_dict(b) for b in d.get("bulk_katmanlar", [])]
+        obj.etken_analitik_spekler = [EtkenMaddeAnalitikSpek.from_dict(e) for e in d.get("etken_analitik_spekler", [])]
         obj.birim_formul_satirlar = d.get("birim_formul_satirlar", [])
         obj.pvp_notlar = d.get("pvp_notlar", [])
         obj.pvr_notlar = d.get("pvr_notlar", [])
@@ -439,13 +504,46 @@ class ProjeVerisi:
         return obj
 
     def save(self, filepath: str) -> None:
-        """Projeyi JSON dosyasına kaydeder."""
         with open(filepath, "w", encoding="utf-8") as f:
             json.dump(self.to_dict(), f, ensure_ascii=False, indent=2)
 
     @classmethod
     def load(cls, filepath: str) -> "ProjeVerisi":
-        """JSON dosyasından proje yükler."""
         with open(filepath, "r", encoding="utf-8") as f:
             data = json.load(f)
         return cls.from_dict(data)
+
+    def bulk_katmanlari_olustur(self):
+        """
+        Proje bilgilerine göre bulk katmanlarını otomatik oluşturur.
+        Spec kartı ilk açıldığında çağrılır.
+        """
+        if self.bulk_katmanlar:
+            return  # Zaten oluşturulmuş
+
+        n = len(self.etken_maddeler)
+        if self.tablet_yapisi == TabletYapisi.TEK_KATMAN.value:
+            katman = BulkKatmanSpek(katman_adi="Bulk Karışımı")
+            katman.etken_indeksler = list(range(n))
+            self.bulk_katmanlar = [katman]
+        else:  # Çift katman
+            k1 = BulkKatmanSpek(katman_adi="Katman I Bulk")
+            k2 = BulkKatmanSpek(katman_adi="Katman II Bulk")
+            # Varsayılan: etkenler eşit bölünür
+            yari = max(1, n // 2)
+            k1.etken_indeksler = list(range(yari))
+            k2.etken_indeksler = list(range(yari, n))
+            self.bulk_katmanlar = [k1, k2]
+
+        # Analitik spekleri oluştur
+        if not self.etken_analitik_spekler:
+            for em in self.etken_maddeler:
+                spek = EtkenMaddeAnalitikSpek(ad=em.ad)
+                # Mevcut veriden taşı
+                spek.miktar_hedef = em.miktar_hedef_mg
+                spek.miktar_birim = em.miktar_birim
+                spek.miktar_tolerans = em.miktar_tolerans
+                spek.dis_min_q = em.dis_min_q
+                spek.dis_sure_dk = em.dis_sure_dk
+                spek.impuriteler = em.impuriteler[:]
+                self.etken_analitik_spekler.append(spek)
