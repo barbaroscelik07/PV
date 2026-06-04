@@ -38,20 +38,28 @@ jobs:
             --onefile `
             --windowed `
             --icon pvdoc.ico `
-            --paths . `
-            --collect-submodules ui `
-            --collect-submodules core `
-            --collect-submodules utils `
-            --add-data "pvdoc.ico;." `
+            --paths "." `
+            --paths "ui" `
+            --paths "core" `
+            --hidden-import ui `
+            --hidden-import ui.stiller `
+            --hidden-import ui.ana_pencere `
+            --hidden-import ui.spec_karti `
+            --hidden-import ui.yeni_proje_dialog `
+            --hidden-import ui.birim_formul `
+            --hidden-import core `
+            --hidden-import core.models `
             --hidden-import PyQt6 `
             --hidden-import PyQt6.QtWidgets `
             --hidden-import PyQt6.QtCore `
             --hidden-import PyQt6.QtGui `
             --hidden-import PyQt6.sip `
+            --add-data "pvdoc.ico;." `
+            --add-data "ui;ui" `
+            --add-data "core;core" `
             --exclude-module tkinter `
             --exclude-module matplotlib `
             --exclude-module numpy `
-            --exclude-module pandas `
             --noconfirm `
             --clean
 
