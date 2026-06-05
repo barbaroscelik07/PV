@@ -47,6 +47,7 @@ jobs:
             --hidden-import ui.birim_formul `
             --hidden-import ui.proje_ozeti `
             --hidden-import ui.proses_akis `
+            --hidden-import ui.akis_editoru `
             --hidden-import core `
             --hidden-import core.models `
             --hidden-import PyQt6 `
