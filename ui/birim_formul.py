@@ -38,7 +38,7 @@ FONKSIYON_LISTESI = [
     "Bağlayıcı",
     "Dağıtıcı",
     "Lubrikant",
-    "Kayıcı",
+    "Kaydırıcı",
     "pH Düzenleyici",
     "Kaplama Malzemesi",
     "Çözücü",
@@ -325,20 +325,24 @@ class BirimFormulTablosu(QWidget):
             "", "Hammadde / Yardımcı Madde", "Fonksiyon",
             "mg/tb", "% İçerik", "kg/seri", ""
         ])
-        self._tablo.horizontalHeader().setSectionResizeMode(COL_AD, QHeaderView.ResizeMode.Stretch)
-        self._tablo.horizontalHeader().setSectionResizeMode(COL_FONK, QHeaderView.ResizeMode.Fixed)
+        # Tüm sütunlar kullanıcı tarafından sürükleyerek genişletilebilir
+        self._tablo.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        self._tablo.horizontalHeader().setStretchLastSection(False)
         self._tablo.setColumnWidth(COL_DRAG, 22)
-        self._tablo.setColumnWidth(COL_AD, 200)
-        self._tablo.setColumnWidth(COL_FONK, 130)
-        self._tablo.setColumnWidth(COL_MG, 65)
-        self._tablo.setColumnWidth(COL_YUZ, 65)
-        self._tablo.setColumnWidth(COL_KG, 75)
+        self._tablo.setColumnWidth(COL_AD, 175)
+        self._tablo.setColumnWidth(COL_FONK, 125)
+        self._tablo.setColumnWidth(COL_MG, 62)
+        self._tablo.setColumnWidth(COL_YUZ, 62)
+        self._tablo.setColumnWidth(COL_KG, 72)
         self._tablo.setColumnWidth(COL_SIL, 28)
         self._tablo.verticalHeader().setVisible(False)
         self._tablo.setShowGrid(True)
+        self._tablo.setDragEnabled(True)
+        self._tablo.setAcceptDrops(True)
+        self._tablo.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
+        self._tablo.setDropIndicatorShown(True)
         self._tablo.setAlternatingRowColors(False)
-        self._tablo.setEditTriggers(QAbstractItemView.EditTrigger.DoubleClicked |
-                                    QAbstractItemView.EditTrigger.SelectedClicked)
+        self._tablo.setEditTriggers(QAbstractItemView.EditTrigger.AllEditTriggers)
         self._tablo.setStyleSheet(f"""
             QTableWidget {{
                 border: none;
@@ -545,10 +549,23 @@ class BirimFormulTablosu(QWidget):
                 border: none;
                 font-size: 11px;
                 font-family: {FONT_AILESI};
-                padding: 1px 4px;
+                padding: 1px 20px 1px 4px;
                 background: transparent;
             }}
-            QComboBox::drop-down {{ border: none; padding-right: 4px; }}
+            QComboBox::drop-down {{
+                subcontrol-origin: padding;
+                subcontrol-position: top right;
+                width: 18px;
+                border-left: 1px solid {RENK_KENARLIK};
+                background: {RENK_BG_IKINCIL};
+            }}
+            QComboBox::down-arrow {{
+                width: 8px; height: 8px;
+                image: none;
+                border-left: 3px solid transparent;
+                border-right: 3px solid transparent;
+                border-top: 5px solid {RENK_YAZI_IKINCIL};
+            }}
         """)
         if s.fonksiyon:
             combo.setCurrentText(s.fonksiyon)
@@ -579,14 +596,16 @@ class BirimFormulTablosu(QWidget):
         # Sil butonu
         btn_sil = QPushButton("✕")
         btn_sil.setFixedSize(22, 22)
+        btn_sil.setToolTip("Bu satırı sil")
         btn_sil.setStyleSheet(f"""
             QPushButton {{
-                border: none; background: transparent;
-                color: {RENK_YAZI_UCUNCUL}; font-size: 12px;
+                border: 1px solid {RENK_KENARLIK}; background: {RENK_BG_IKINCIL};
+                color: #A32D2D; font-size: 12px; font-weight: bold;
+                border-radius: 3px;
             }}
             QPushButton:hover {{
                 background: #FCEBEB; color: #A32D2D;
-                border-radius: 3px;
+                border: 1px solid #F09595;
             }}
         """)
         btn_sil.clicked.connect(lambda checked, g=grup, i=vi: self._satir_sil(g, i))
@@ -745,50 +764,61 @@ class BirimFormulTablosu(QWidget):
         self._tablo.blockSignals(False)
 
     def _tablo_key_press(self, event):
-        """Ctrl+V ile Excel/Word'den yapıştırma desteği."""
+        """Ctrl+V ile Excel/Word'den yapıştırma desteği.
+        Her zaman sütun 0'dan (hammadde adı) başlar.
+        Format: Ad [tab] Fonksiyon [tab] mg/tb [tab] % İçerik [tab] kg/seri
+        """
         if event.matches(QKeySequence.StandardKey.Paste):
             clipboard = QApplication.clipboard()
             metin = clipboard.text()
             if not metin:
                 return
-            satirlar = metin.strip().split('\n')
-            baslangic_satir = self._tablo.currentRow()
-            # Mevcut veri satırlarını bul
-            veri_satirlari = [r for r in self._satir_haritasi.keys()]
-            if not veri_satirlari:
-                # Boş tablo — ilk gruba ekle
-                for satir_metin in satirlar:
-                    kolonlar = satir_metin.split('\t')
-                    if len(kolonlar) >= 1 and kolonlar[0].strip():
-                        s = FormulSatiri(grup=self._gruplar[0])
-                        s.ad = kolonlar[0].strip()
-                        if len(kolonlar) >= 2: s.fonksiyon = kolonlar[1].strip()
-                        if len(kolonlar) >= 3: s.mg_tb = kolonlar[2].strip().replace(',','.')
-                        if len(kolonlar) >= 4: s.yuzde = kolonlar[3].strip().replace(',','.'); s.manuel_yuzde = True
-                        if len(kolonlar) >= 5: s.kg_seri = kolonlar[4].strip().replace(',','.'); s.manuel_kg = True
-                        self._veri[self._gruplar[0]].append(s)
+
+            # Satırları ayır
+            ham_satirlar = metin.strip().split('\n')
+            if not ham_satirlar:
+                return
+
+            # Hedef grubu belirle
+            secili_satir = self._tablo.currentRow()
+            if secili_satir in self._satir_haritasi:
+                hedef_grup, _ = self._satir_haritasi[secili_satir]
             else:
-                # Mevcut seçili satırdan başla
-                hedef_satir_idx = 0
-                if baslangic_satir in self._satir_haritasi:
-                    grup, vi = self._satir_haritasi[baslangic_satir]
-                else:
-                    grup = self._gruplar[0]
-                    vi = len(self._veri[grup])
+                hedef_grup = self._gruplar[0]
 
-                for satir_metin in satirlar:
-                    kolonlar = satir_metin.split('\t')
-                    if len(kolonlar) >= 1 and kolonlar[0].strip():
-                        s = FormulSatiri(grup=grup)
-                        s.ad = kolonlar[0].strip()
-                        if len(kolonlar) >= 2: s.fonksiyon = kolonlar[1].strip()
-                        if len(kolonlar) >= 3: s.mg_tb = kolonlar[2].strip().replace(',','.')
-                        if len(kolonlar) >= 4: s.yuzde = kolonlar[3].strip().replace(',','.'); s.manuel_yuzde = True
-                        if len(kolonlar) >= 5: s.kg_seri = kolonlar[4].strip().replace(',','.'); s.manuel_kg = True
-                        self._veri[grup].append(s)
+            eklenen = 0
+            for satir_metin in ham_satirlar:
+                satir_metin = satir_metin.strip()
+                if not satir_metin:
+                    continue
+                # Tab ile ayır — Excel/Word kopyasında tab kullanır
+                kolonlar = satir_metin.split('\t')
+                # Her kolon için virgül → nokta dönüşümü
+                kolonlar = [k.strip() for k in kolonlar]
 
-            self._tabloyu_yenile()
-            self.degisti.emit()
+                # En az isim olmalı
+                if not kolonlar[0]:
+                    continue
+
+                s = FormulSatiri(grup=hedef_grup)
+                s.ad = kolonlar[0]
+                if len(kolonlar) >= 2 and kolonlar[1]:
+                    s.fonksiyon = kolonlar[1]
+                if len(kolonlar) >= 3 and kolonlar[2]:
+                    s.mg_tb = kolonlar[2].replace(',', '.')
+                if len(kolonlar) >= 4 and kolonlar[3]:
+                    s.yuzde = kolonlar[3].replace(',', '.')
+                    s.manuel_yuzde = True
+                if len(kolonlar) >= 5 and kolonlar[4]:
+                    s.kg_seri = kolonlar[4].replace(',', '.')
+                    s.manuel_kg = True
+
+                self._veri[hedef_grup].append(s)
+                eklenen += 1
+
+            if eklenen > 0:
+                self._tabloyu_yenile()
+                self.degisti.emit()
         else:
             QTableWidget.keyPressEvent(self._tablo, event)
 
