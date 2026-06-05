@@ -918,13 +918,6 @@ class BulkKatmanSekmesi(QScrollArea):
         self._proje = proje
         self._yildiz_varsayilan = yildiz_varsayilan
         self._em_paneller: list[EtkenAnalitikPanel] = []
-        # Film Tablet veya Tablet formunda bulk * varsayılan işaretli
-        urun = proje.urun_formu
-        self._yildiz_varsayilan = urun in [
-            UrunFormu.FILM_TABLET.value,
-            UrunFormu.TABLET.value,
-            UrunFormu.KAPSUL_FILM_TABLET.value,
-        ]
 
         w = QWidget(); self._layout = QVBoxLayout(w)
         self._layout.setContentsMargins(12,8,12,8); self._layout.setSpacing(8)

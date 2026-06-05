@@ -556,60 +556,72 @@ class AnaPencere(QMainWindow):
 
     def _proje_yuklendi(self, proje: ProjeVerisi):
         """Proje yüklendiğinde arayüzü günceller."""
-        self._proje = proje
-        self._kayit_gerekli = False
+        try:
+            self._proje = proje
+            self._kayit_gerekli = False
 
-        self.proje_info.guncelle(proje)
-        self.setWindowTitle(f"PV-DOC — {proje.urun_adi or 'Yeni Proje'}")
-        self._nav_tumu_aktif()
-        self.eylem_kaydet.setEnabled(True)
-        self.eylem_farkli_kaydet.setEnabled(True)
-        self.btn_word.setEnabled(True)
-        self.btn_pdf.setEnabled(True)
+            self.proje_info.guncelle(proje)
+            self.setWindowTitle(f"PV-DOC — {proje.urun_adi or 'Yeni Proje'}")
+            self._nav_tumu_aktif()
+            self.eylem_kaydet.setEnabled(True)
+            self.eylem_farkli_kaydet.setEnabled(True)
+            self.btn_word.setEnabled(True)
+            self.btn_pdf.setEnabled(True)
 
-        # Proje özeti
-        if isinstance(self._placeholder_widgets.get("proje_ozeti"), ProjeOzetiWidget):
-            self._placeholder_widgets["proje_ozeti"].proje_guncelle(proje)
-        else:
-            po_w = ProjeOzetiWidget(proje)
-            po_w.degisti.connect(self._kayit_isaretle)
-            po_w.kaydedildi.connect(
-                lambda: self.statusBar().showMessage("Proje bilgileri güncellendi."))
-            po_w.kaydedildi.connect(lambda: self.proje_info.guncelle(self._proje))
-            self._widget_degistir("proje_ozeti", po_w)
+            # Proje özeti
+            if isinstance(self._placeholder_widgets.get("proje_ozeti"), ProjeOzetiWidget):
+                self._placeholder_widgets["proje_ozeti"].proje_guncelle(proje)
+            else:
+                po_w = ProjeOzetiWidget(proje)
+                po_w.degisti.connect(self._kayit_isaretle)
+                po_w.kaydedildi.connect(
+                    lambda: self.statusBar().showMessage("Proje bilgileri güncellendi."))
+                po_w.kaydedildi.connect(lambda: self.proje_info.guncelle(self._proje))
+                self._widget_degistir("proje_ozeti", po_w)
 
-        # Spec kartı
-        if isinstance(self._placeholder_widgets.get("spec_karti"), SpecKartiWidget):
-            self._placeholder_widgets["spec_karti"].proje_guncelle(proje)
-        else:
-            spec_w = SpecKartiWidget(proje)
-            spec_w.kaydedildi.connect(
-                lambda: self.statusBar().showMessage("Spec kartı kaydedildi."))
-            spec_w.degisti.connect(self._kayit_isaretle)
-            self._widget_degistir("spec_karti", spec_w)
+            # Spec kartı
+            if isinstance(self._placeholder_widgets.get("spec_karti"), SpecKartiWidget):
+                self._placeholder_widgets["spec_karti"].proje_guncelle(proje)
+            else:
+                spec_w = SpecKartiWidget(proje)
+                spec_w.kaydedildi.connect(
+                    lambda: self.statusBar().showMessage("Spec kartı kaydedildi."))
+                spec_w.degisti.connect(self._kayit_isaretle)
+                self._widget_degistir("spec_karti", spec_w)
 
-        # Birim formül
-        if isinstance(self._placeholder_widgets.get("birim_formul"), BirimFormulWidget):
-            self._placeholder_widgets["birim_formul"].proje_guncelle(proje)
-        else:
-            bf_w = BirimFormulWidget(proje)
-            bf_w.kaydedildi.connect(
-                lambda: self.statusBar().showMessage("Birim formül kaydedildi."))
-            bf_w.degisti.connect(self._kayit_isaretle)
-            self._widget_degistir("birim_formul", bf_w)
+            # Birim formül
+            if isinstance(self._placeholder_widgets.get("birim_formul"), BirimFormulWidget):
+                self._placeholder_widgets["birim_formul"].proje_guncelle(proje)
+            else:
+                bf_w = BirimFormulWidget(proje)
+                bf_w.kaydedildi.connect(
+                    lambda: self.statusBar().showMessage("Birim formül kaydedildi."))
+                bf_w.degisti.connect(self._kayit_isaretle)
+                self._widget_degistir("birim_formul", bf_w)
 
-        # Proses ve Akış
-        if isinstance(self._placeholder_widgets.get("proses_akis"), ProsesAkisWidget):
-            self._placeholder_widgets["proses_akis"].proje_guncelle(proje)
-        else:
-            pa_w = ProsesAkisWidget(proje)
-            pa_w.kaydedildi.connect(
-                lambda: self.statusBar().showMessage("Proses ve akış kaydedildi."))
-            pa_w.degisti.connect(self._kayit_isaretle)
-            self._widget_degistir("proses_akis", pa_w)
+            # Proses ve Akış
+            if isinstance(self._placeholder_widgets.get("proses_akis"), ProsesAkisWidget):
+                self._placeholder_widgets["proses_akis"].proje_guncelle(proje)
+            else:
+                pa_w = ProsesAkisWidget(proje)
+                pa_w.kaydedildi.connect(
+                    lambda: self.statusBar().showMessage("Proses ve akış kaydedildi."))
+                pa_w.degisti.connect(self._kayit_isaretle)
+                self._widget_degistir("proses_akis", pa_w)
 
-        self._nav_sec("spec_karti")
-        self.statusBar().showMessage(f"Proje yüklendi: {proje.urun_adi}")
+            self._nav_sec("spec_karti")
+            self.statusBar().showMessage(f"Proje yüklendi: {proje.urun_adi}")
+
+        except Exception as e:
+            import traceback
+            from PyQt6.QtWidgets import QMessageBox
+            hata_detay = traceback.format_exc()
+            QMessageBox.critical(
+                self, "Hata",
+                f"Proje yüklenirken hata oluştu:\n\n{e}\n\n{hata_detay}")
+            import sys
+            print(f"HATA: {e}", file=sys.stderr)
+            print(hata_detay, file=sys.stderr)
 
     def _widget_degistir(self, key: str, yeni_widget: QWidget):
         """Placeholder widget'ı gerçek modül widget'ıyla değiştirir."""
