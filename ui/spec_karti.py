@@ -946,8 +946,10 @@ class BulkKatmanSekmesi(QScrollArea):
                     kt_goster=True, sb_goster=False,
                     imp_yildiz_varsayilan=True)
                 panel.degisti.connect(self.degisti)
-                # Anlık aktarım sinyali — her değişiklikte tetikle
-                panel.degisti.connect(lambda _, s=self: self.anlik_aktar_tetik.emit(s))
+                # Anlık aktarım — closure ile sekmeyi yakala
+                def _aktar_baglanti(bulk_sekme=self):
+                    bulk_sekme.anlik_aktar_tetik.emit(bulk_sekme)
+                panel.degisti.connect(_aktar_baglanti)
                 self._em_paneller.append(panel)
                 self._em_layout.addWidget(panel)
 
