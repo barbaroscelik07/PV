@@ -325,44 +325,39 @@ class ImpuriteSatiri(QFrame):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setStyleSheet("background: transparent;")
-        l = QHBoxLayout(self); l.setContentsMargins(4,2,4,2); l.setSpacing(6)
+        l = QHBoxLayout(self); l.setContentsMargins(4,2,4,2); l.setSpacing(5)
         self.input_ad = QLineEdit()
         self.input_ad.setPlaceholderText("İmpürite adı")
-        self.input_ad.setFixedWidth(185)
+        self.input_ad.setFixedWidth(175)
         l.addWidget(self.input_ad)
         l.addWidget(QLabel("Maks."))
         self.input_deger = QLineEdit()
         self.input_deger.setPlaceholderText("Değer")
-        self.input_deger.setFixedWidth(70)
+        self.input_deger.setFixedWidth(65)
         l.addWidget(self.input_deger)
-        l.addWidget(QLabel("%"))
-        l.addStretch()
-        # Her zaman görünür kırmızı X — solid arka plan
+        lbl_yuzde = QLabel("%")
+        l.addWidget(lbl_yuzde)
+        # Sil butonu — % işaretinin hemen yanında
         btn = QPushButton("✕")
-        btn.setFixedSize(26, 26)
+        btn.setFixedSize(22, 22)
         btn.setToolTip("Bu impüriteyi sil")
-        btn.setFlat(False)
         btn.setStyleSheet("""
             QPushButton {
                 background-color: #FADBD8;
                 color: #C0392B;
                 border: 1px solid #F1948A;
-                border-radius: 4px;
-                font-size: 13px;
+                border-radius: 3px;
+                font-size: 12px;
                 font-weight: bold;
             }
             QPushButton:hover {
                 background-color: #F1948A;
                 color: white;
-                border: 1px solid #C0392B;
-            }
-            QPushButton:pressed {
-                background-color: #C0392B;
-                color: white;
             }
         """)
         btn.clicked.connect(lambda: self.silindi.emit(self))
         l.addWidget(btn)
+        l.addStretch(1)  # stretch sonda — buton % yanında kalır
         self.input_ad.textChanged.connect(self.degisti)
         self.input_deger.textChanged.connect(self.degisti)
 
@@ -446,6 +441,7 @@ class EtkenAnalitikPanel(QWidget):
                  kt_goster: bool = False,
                  sb_goster: bool = False,
                  imp_yildiz_varsayilan: bool = True,
+                 yildiz_varsayilan: bool = False,
                  parent=None):
         super().__init__(parent)
         self._dissolusyon_goster = dissolusyon_goster
@@ -464,6 +460,8 @@ class EtkenAnalitikPanel(QWidget):
             f"font-size:10px;color:{RENK_YAZI_UCUNCUL};font-style:italic;")
         self.row_teshis = TestSatiri("Teşhis", teshis_lbl,
                                      yildiz=True, sb=sb_goster)
+        if self.row_teshis.cb_yildiz:
+            self.row_teshis.cb_yildiz.setChecked(yildiz_varsayilan)
         if self.row_teshis.cb_sb:
             self.row_teshis.cb_sb.setChecked(True)
         self.row_teshis.degisti.connect(self.degisti)
@@ -475,6 +473,8 @@ class EtkenAnalitikPanel(QWidget):
         self.miktar_w.input_hedef.textChanged.connect(self.degisti)
         self.row_miktar = TestSatiri("Miktar Tayini", self.miktar_w,
                                      yildiz=True, sb=sb_goster)
+        if self.row_miktar.cb_yildiz:
+            self.row_miktar.cb_yildiz.setChecked(yildiz_varsayilan)
         if self.row_miktar.cb_sb:
             self.row_miktar.cb_sb.setChecked(True)
         self.row_miktar.degisti.connect(self.degisti)
@@ -493,6 +493,8 @@ class EtkenAnalitikPanel(QWidget):
             self.kt_ust.textChanged.connect(self.degisti)
             self.row_kt = TestSatiri("Karışım Tekdüzeliği", kt_w,
                                      yildiz=True, sb=False)
+            if self.row_kt.cb_yildiz:
+                self.row_kt.cb_yildiz.setChecked(yildiz_varsayilan)
             self.row_kt.degisti.connect(self.degisti)
             layout.addWidget(self.row_kt)
 
@@ -502,6 +504,8 @@ class EtkenAnalitikPanel(QWidget):
             self.dis_w.degisti.connect(self.degisti)
             self.row_dis = TestSatiri("Dissolüsyon", self.dis_w,
                                       yildiz=True, sb=sb_goster)
+            if self.row_dis.cb_yildiz:
+                self.row_dis.cb_yildiz.setChecked(yildiz_varsayilan)
             if self.row_dis.cb_sb:
                 self.row_dis.cb_sb.setChecked(True)
             self.row_dis.degisti.connect(self.degisti)
@@ -520,7 +524,6 @@ class EtkenAnalitikPanel(QWidget):
         self.cb_imp_yildiz.setChecked(imp_yildiz_varsayilan)
         self.cb_imp_yildiz.stateChanged.connect(self.degisti)
         imp_hl.addWidget(self.cb_imp_yildiz)
-
         # SB checkbox
         self.cb_imp_sb = None
         if sb_goster:
@@ -903,15 +906,25 @@ class FilmTabletSekmesi(QScrollArea):
 
 class BulkKatmanSekmesi(QScrollArea):
     degisti = pyqtSignal()
-    anlik_aktar_tetik = pyqtSignal(object)  # self gönderir
+    anlik_aktar_tetik = pyqtSignal(object)
 
     def __init__(self, katman_spek: BulkKatmanSpek,
-                 proje: ProjeVerisi, parent=None):
+                 proje: ProjeVerisi,
+                 yildiz_varsayilan: bool = False,
+                 parent=None):
         super().__init__(parent)
         self.setWidgetResizable(True); self.setFrameShape(QFrame.Shape.NoFrame)
         self._katman_spek = katman_spek
         self._proje = proje
+        self._yildiz_varsayilan = yildiz_varsayilan
         self._em_paneller: list[EtkenAnalitikPanel] = []
+        # Film Tablet veya Tablet formunda bulk * varsayılan işaretli
+        urun = proje.urun_formu
+        self._yildiz_varsayilan = urun in [
+            UrunFormu.FILM_TABLET.value,
+            UrunFormu.TABLET.value,
+            UrunFormu.KAPSUL_FILM_TABLET.value,
+        ]
 
         w = QWidget(); self._layout = QVBoxLayout(w)
         self._layout.setContentsMargins(12,8,12,8); self._layout.setSpacing(8)
@@ -924,6 +937,8 @@ class BulkKatmanSekmesi(QScrollArea):
         self.input_gorunus.textChanged.connect(self.degisti)
         self.row_gorunus = TestSatiri("Görünüş", self.input_gorunus,
                                       yildiz=True, sb=False)
+        if self.row_gorunus.cb_yildiz:
+            self.row_gorunus.cb_yildiz.setChecked(yildiz_varsayilan)
         self.row_gorunus.degisti.connect(self.degisti)
         self._layout.addWidget(self.row_gorunus)
 
@@ -934,12 +949,15 @@ class BulkKatmanSekmesi(QScrollArea):
             lbl.setStyleSheet(
                 f"font-size:10px;color:{RENK_YAZI_UCUNCUL};font-style:italic;")
             row = TestSatiri(ad, lbl, yildiz=True, sb=False)
+            if row.cb_yildiz:
+                row.cb_yildiz.setChecked(yildiz_varsayilan)
             row.degisti.connect(self.degisti)
             setattr(self, attr, row)
             self._layout.addWidget(row)
 
         self._layout.addWidget(_sek_baslik("Mikrobiyolojik Kontrol — Katman"))
         self.mikro = MikrobiyolojikPanel(sb_goster=False)
+        self.mikro.cb_yildiz.setChecked(yildiz_varsayilan)
         self.mikro.degisti.connect(self.degisti)
         self._layout.addWidget(self.mikro)
 
@@ -962,9 +980,9 @@ class BulkKatmanSekmesi(QScrollArea):
                 panel = EtkenAnalitikPanel(
                     em.ad, dissolusyon_goster=False,
                     kt_goster=True, sb_goster=False,
-                    imp_yildiz_varsayilan=True)
+                    imp_yildiz_varsayilan=self._yildiz_varsayilan,
+                    yildiz_varsayilan=self._yildiz_varsayilan)
                 panel.degisti.connect(self.degisti)
-                # Anlık aktarım — closure ile sekmeyi yakala
                 def _aktar_baglanti(bulk_sekme=self):
                     bulk_sekme.anlik_aktar_tetik.emit(bulk_sekme)
                 panel.degisti.connect(_aktar_baglanti)
@@ -1066,10 +1084,15 @@ class SpecKartiWidget(QWidget):
         tablet_formlar = [UrunFormu.TABLET.value]
 
         # ── BULK ──
+        # Film Tablet ve Tablet formlarında bulk * varsayılan işaretli
+        bulk_yildiz = urun in [UrunFormu.FILM_TABLET.value,
+                                UrunFormu.TABLET.value,
+                                UrunFormu.KAPSUL_FILM_TABLET.value]
         for katman_spek in self._proje.bulk_katmanlar:
-            sekme = BulkKatmanSekmesi(katman_spek, self._proje)
+            sekme = BulkKatmanSekmesi(
+                katman_spek, self._proje,
+                yildiz_varsayilan=bulk_yildiz)
             sekme.degisti.connect(self._on_degisti)
-            # Anlık aktarım sinyalini bağla
             sekme.anlik_aktar_tetik.connect(self._bulk_anlik_aktar)
             sekme.from_model(self._proje.etken_analitik_spekler)
             self._bulk_sekmeleri.append(sekme)
