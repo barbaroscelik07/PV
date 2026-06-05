@@ -429,6 +429,7 @@ class ProjeVerisi:
     ekipman_satirlar: List[Dict] = field(default_factory=list)
     numune_satirlar: List[Dict] = field(default_factory=list)
     uretim_prosesi_metni: str = ""
+    proses_adimlar: List[Dict] = field(default_factory=list)
     sapmalar: List[Dict] = field(default_factory=list)
     sonuc_metni: str = ""
     yorum_metni: str = ""
@@ -461,6 +462,7 @@ class ProjeVerisi:
             "ekipman_satirlar": self.ekipman_satirlar,
             "numune_satirlar": self.numune_satirlar,
             "uretim_prosesi_metni": self.uretim_prosesi_metni,
+            "proses_adimlar": self.proses_adimlar,
             "sapmalar": self.sapmalar,
             "sonuc_metni": self.sonuc_metni,
             "yorum_metni": self.yorum_metni,
@@ -497,6 +499,7 @@ class ProjeVerisi:
         obj.ekipman_satirlar = d.get("ekipman_satirlar", [])
         obj.numune_satirlar = d.get("numune_satirlar", [])
         obj.uretim_prosesi_metni = d.get("uretim_prosesi_metni", "")
+        obj.proses_adimlar = d.get("proses_adimlar", [])
         obj.sapmalar = d.get("sapmalar", [])
         obj.sonuc_metni = d.get("sonuc_metni", "")
         obj.yorum_metni = d.get("yorum_metni", "")
