@@ -338,10 +338,10 @@ class ImpuriteSatiri(QFrame):
             QPushButton {{
                 border: none; border-radius: 4px;
                 background: transparent;
-                color: {RENK_YAZI_UCUNCUL}; font-size: 12px;
+                color: #C0392B; font-size: 13px; font-weight: bold;
             }}
             QPushButton:hover {{
-                background-color: #FCEBEB; color: #A32D2D;
+                background-color: #FCEBEB;
             }}
         """)
         btn.clicked.connect(lambda: self.silindi.emit(self)); l.addWidget(btn)
