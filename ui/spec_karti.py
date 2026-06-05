@@ -407,7 +407,7 @@ class MikrobiyolojikPanel(QFrame):
         self.cb_yildiz = QCheckBox()
         self.cb_yildiz.setToolTip("* = Sadece validasyonda")
         self.cb_yildiz.setStyleSheet(_cb_stil()); self.cb_yildiz.setFixedWidth(22)
-        self.cb_yildiz.setChecked(yildiz_varsayilan)
+        self.cb_yildiz.setChecked(False)
         self.cb_yildiz.stateChanged.connect(self.degisti)
         l.addWidget(self.cb_yildiz)
 
@@ -463,7 +463,7 @@ class EtkenAnalitikPanel(QWidget):
         self.row_teshis = TestSatiri("Teşhis", teshis_lbl,
                                      yildiz=True, sb=sb_goster)
         if self.row_teshis.cb_yildiz:
-            self.row_teshis.cb_yildiz.setChecked(yildiz_varsayilan)
+            self.row_teshis.cb_yildiz.setChecked(False)
         if self.row_teshis.cb_sb:
             self.row_teshis.cb_sb.setChecked(True)
         self.row_teshis.degisti.connect(self.degisti)
@@ -476,7 +476,7 @@ class EtkenAnalitikPanel(QWidget):
         self.row_miktar = TestSatiri("Miktar Tayini", self.miktar_w,
                                      yildiz=True, sb=sb_goster)
         if self.row_miktar.cb_yildiz:
-            self.row_miktar.cb_yildiz.setChecked(yildiz_varsayilan)
+            self.row_miktar.cb_yildiz.setChecked(False)
         if self.row_miktar.cb_sb:
             self.row_miktar.cb_sb.setChecked(True)
         self.row_miktar.degisti.connect(self.degisti)
@@ -496,7 +496,7 @@ class EtkenAnalitikPanel(QWidget):
             self.row_kt = TestSatiri("Karışım Tekdüzeliği", kt_w,
                                      yildiz=True, sb=False)
             if self.row_kt.cb_yildiz:
-                self.row_kt.cb_yildiz.setChecked(yildiz_varsayilan)
+                self.row_kt.cb_yildiz.setChecked(False)
             self.row_kt.degisti.connect(self.degisti)
             layout.addWidget(self.row_kt)
 
@@ -507,7 +507,7 @@ class EtkenAnalitikPanel(QWidget):
             self.row_dis = TestSatiri("Dissolüsyon", self.dis_w,
                                       yildiz=True, sb=sb_goster)
             if self.row_dis.cb_yildiz:
-                self.row_dis.cb_yildiz.setChecked(yildiz_varsayilan)
+                self.row_dis.cb_yildiz.setChecked(False)
             if self.row_dis.cb_sb:
                 self.row_dis.cb_sb.setChecked(True)
             self.row_dis.degisti.connect(self.degisti)
@@ -523,7 +523,7 @@ class EtkenAnalitikPanel(QWidget):
         self.cb_imp_yildiz = QCheckBox()
         self.cb_imp_yildiz.setToolTip("* = Sadece validasyonda")
         self.cb_imp_yildiz.setStyleSheet(_cb_stil()); self.cb_imp_yildiz.setFixedWidth(22)
-        self.cb_imp_yildiz.setChecked(imp_yildiz_varsayilan)
+        self.cb_imp_yildiz.setChecked(False)
         self.cb_imp_yildiz.stateChanged.connect(self.degisti)
         imp_hl.addWidget(self.cb_imp_yildiz)
         # SB checkbox
@@ -952,7 +952,7 @@ class BulkKatmanSekmesi(QScrollArea):
         self.row_gorunus = TestSatiri("Görünüş", self.input_gorunus,
                                       yildiz=True, sb=False)
         if self.row_gorunus.cb_yildiz:
-            self.row_gorunus.cb_yildiz.setChecked(yildiz_varsayilan)
+            self.row_gorunus.cb_yildiz.setChecked(False)
         self.row_gorunus.degisti.connect(self.degisti)
         self._layout.addWidget(self.row_gorunus)
 
@@ -964,14 +964,14 @@ class BulkKatmanSekmesi(QScrollArea):
                 f"font-size:10px;color:{RENK_YAZI_UCUNCUL};font-style:italic;")
             row = TestSatiri(ad, lbl, yildiz=True, sb=False)
             if row.cb_yildiz:
-                row.cb_yildiz.setChecked(yildiz_varsayilan)
+                row.cb_yildiz.setChecked(False)
             row.degisti.connect(self.degisti)
             setattr(self, attr, row)
             self._layout.addWidget(row)
 
         self._layout.addWidget(_sek_baslik("Mikrobiyolojik Kontrol — Katman"))
         self.mikro = MikrobiyolojikPanel(sb_goster=False)
-        self.mikro.cb_yildiz.setChecked(yildiz_varsayilan)
+        self.mikro.cb_yildiz.setChecked(False)
         self.mikro.degisti.connect(self.degisti)
         self._layout.addWidget(self.mikro)
 
