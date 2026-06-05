@@ -319,32 +319,50 @@ class MiktarWidget(QWidget):
 
 
 class ImpuriteSatiri(QFrame):
-    """İmpürite satırı — etken sil butonu gibi sade kırmızı X."""
     silindi = pyqtSignal(object)
     degisti = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setStyleSheet("background: transparent;")
         l = QHBoxLayout(self); l.setContentsMargins(4,2,4,2); l.setSpacing(6)
-        self.input_ad = QLineEdit(); self.input_ad.setPlaceholderText("İmpürite adı"); self.input_ad.setFixedWidth(185)
+        self.input_ad = QLineEdit()
+        self.input_ad.setPlaceholderText("İmpürite adı")
+        self.input_ad.setFixedWidth(185)
         l.addWidget(self.input_ad)
         l.addWidget(QLabel("Maks."))
-        self.input_deger = QLineEdit(); self.input_deger.setPlaceholderText("Değer"); self.input_deger.setFixedWidth(70)
-        l.addWidget(self.input_deger); l.addWidget(QLabel("%")); l.addStretch()
-        # Etken sil butonu ile aynı stil
-        btn = QPushButton("✕"); btn.setFixedSize(26,26)
+        self.input_deger = QLineEdit()
+        self.input_deger.setPlaceholderText("Değer")
+        self.input_deger.setFixedWidth(70)
+        l.addWidget(self.input_deger)
+        l.addWidget(QLabel("%"))
+        l.addStretch()
+        # Her zaman görünür kırmızı X — solid arka plan
+        btn = QPushButton("✕")
+        btn.setFixedSize(26, 26)
         btn.setToolTip("Bu impüriteyi sil")
-        btn.setStyleSheet(f"""
-            QPushButton {{
-                border: none; border-radius: 4px;
-                background: transparent;
-                color: #C0392B; font-size: 13px; font-weight: bold;
-            }}
-            QPushButton:hover {{
-                background-color: #FCEBEB;
-            }}
+        btn.setFlat(False)
+        btn.setStyleSheet("""
+            QPushButton {
+                background-color: #FADBD8;
+                color: #C0392B;
+                border: 1px solid #F1948A;
+                border-radius: 4px;
+                font-size: 13px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #F1948A;
+                color: white;
+                border: 1px solid #C0392B;
+            }
+            QPushButton:pressed {
+                background-color: #C0392B;
+                color: white;
+            }
         """)
-        btn.clicked.connect(lambda: self.silindi.emit(self)); l.addWidget(btn)
+        btn.clicked.connect(lambda: self.silindi.emit(self))
+        l.addWidget(btn)
         self.input_ad.textChanged.connect(self.degisti)
         self.input_deger.textChanged.connect(self.degisti)
 

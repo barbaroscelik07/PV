@@ -23,6 +23,7 @@ from ui.spec_karti import SpecKartiWidget
 from ui.yeni_proje_dialog import YeniProjeDialog
 from ui.birim_formul import BirimFormulWidget
 from ui.proje_ozeti import ProjeOzetiWidget
+from ui.proses_akis import ProsesAkisWidget
 
 import os
 
@@ -596,6 +597,16 @@ class AnaPencere(QMainWindow):
                 lambda: self.statusBar().showMessage("Birim formül kaydedildi."))
             bf_w.degisti.connect(self._kayit_isaretle)
             self._widget_degistir("birim_formul", bf_w)
+
+        # Proses ve Akış
+        if isinstance(self._placeholder_widgets.get("proses_akis"), ProsesAkisWidget):
+            self._placeholder_widgets["proses_akis"].proje_guncelle(proje)
+        else:
+            pa_w = ProsesAkisWidget(proje)
+            pa_w.kaydedildi.connect(
+                lambda: self.statusBar().showMessage("Proses ve akış kaydedildi."))
+            pa_w.degisti.connect(self._kayit_isaretle)
+            self._widget_degistir("proses_akis", pa_w)
 
         self._nav_sec("spec_karti")
         self.statusBar().showMessage(f"Proje yüklendi: {proje.urun_adi}")
