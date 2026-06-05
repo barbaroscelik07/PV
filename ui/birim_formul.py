@@ -279,6 +279,7 @@ class BirimFormulTablosu(QWidget):
                 color:{RENK_YAZI_IKINCIL};}}
         """)
         self._tablo.cellChanged.connect(self._hucre_degisti)
+        self._tablo.cellClicked.connect(self._hucre_tiklandi)
         self._tablo.installEventFilter(self)
         layout.addWidget(self._tablo)
 
@@ -511,14 +512,17 @@ class BirimFormulTablosu(QWidget):
 
     # ── Olay İşleyiciler ──────────────────────────────────────────────────────
 
-    def _hucre_degisti(self, r: int, c: int):
-        if self._yukleniyor:
-            return
-        # Sil sütununa tıklandı mı?
+    def _hucre_tiklandi(self, r: int, c: int):
+        """Sil sütununa tıklanınca satırı sil."""
         if c == COL_SIL and r in self._satir_haritasi:
             grup, vi = self._satir_haritasi[r]
             self._satir_sil(grup, vi)
+
+    def _hucre_degisti(self, r: int, c: int):
+        if self._yukleniyor:
             return
+        if c == COL_SIL:
+            return  # Sil cellClicked ile işlenir
         if r not in self._satir_haritasi:
             return
         grup, vi = self._satir_haritasi[r]
@@ -543,18 +547,6 @@ class BirimFormulTablosu(QWidget):
             s.kg_seri = metin
             s.manuel_kg = bool(metin)
         self.degisti.emit()
-
-    def mousePressEvent(self, event):
-        """Sil sütununa tıklanınca satırı sil."""
-        idx = self._tablo.indexAt(
-            self._tablo.viewport().mapFrom(self, event.pos()))
-        if idx.isValid() and idx.column() == COL_SIL:
-            r = idx.row()
-            if r in self._satir_haritasi:
-                grup, vi = self._satir_haritasi[r]
-                self._satir_sil(grup, vi)
-                return
-        super().mousePressEvent(event)
 
     def _satir_sil(self, grup: str, vi: int):
         if vi < len(self._veri[grup]):
