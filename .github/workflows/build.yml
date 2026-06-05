@@ -45,6 +45,8 @@ jobs:
             --hidden-import ui.spec_karti `
             --hidden-import ui.yeni_proje_dialog `
             --hidden-import ui.birim_formul `
+            --hidden-import ui.proje_ozeti `
+            --hidden-import ui.proses_akis `
             --hidden-import core `
             --hidden-import core.models `
             --hidden-import PyQt6 `
