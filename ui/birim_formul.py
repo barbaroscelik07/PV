@@ -12,7 +12,13 @@ from PyQt6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QHeaderView, QApplication
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QMimeData
-from PyQt6.QtGui import QFont, QColor, QBrush, QDrag
+from PyQt6.QtGui import QFont, QColor, QBrush, QKeySequence
+
+
+class NoScrollComboBox(QComboBox):
+    """Mouse tekerleğiyle değişmeyen ComboBox."""
+    def wheelEvent(self, e):
+        e.ignore()
 
 from core.models import ProjeVerisi, UrunFormu, TabletYapisi
 from ui.stiller import (
@@ -320,12 +326,14 @@ class BirimFormulTablosu(QWidget):
             "mg/tb", "% İçerik", "kg/seri", ""
         ])
         self._tablo.horizontalHeader().setSectionResizeMode(COL_AD, QHeaderView.ResizeMode.Stretch)
-        self._tablo.horizontalHeader().setSectionResizeMode(COL_FONK, QHeaderView.ResizeMode.Stretch)
-        self._tablo.setColumnWidth(COL_DRAG, 24)
-        self._tablo.setColumnWidth(COL_MG, 80)
-        self._tablo.setColumnWidth(COL_YUZ, 75)
-        self._tablo.setColumnWidth(COL_KG, 90)
-        self._tablo.setColumnWidth(COL_SIL, 32)
+        self._tablo.horizontalHeader().setSectionResizeMode(COL_FONK, QHeaderView.ResizeMode.Fixed)
+        self._tablo.setColumnWidth(COL_DRAG, 22)
+        self._tablo.setColumnWidth(COL_AD, 200)
+        self._tablo.setColumnWidth(COL_FONK, 130)
+        self._tablo.setColumnWidth(COL_MG, 65)
+        self._tablo.setColumnWidth(COL_YUZ, 65)
+        self._tablo.setColumnWidth(COL_KG, 75)
+        self._tablo.setColumnWidth(COL_SIL, 28)
         self._tablo.verticalHeader().setVisible(False)
         self._tablo.setShowGrid(True)
         self._tablo.setAlternatingRowColors(False)
@@ -357,6 +365,7 @@ class BirimFormulTablosu(QWidget):
             }}
         """)
         self._tablo.cellChanged.connect(self._hucre_degisti)
+        self._tablo.keyPressEvent = self._tablo_key_press
         layout.addWidget(self._tablo)
 
         # Alt bilgi
@@ -526,8 +535,9 @@ class BirimFormulTablosu(QWidget):
         item_ad = QTableWidgetItem(s.ad)
         self._tablo.setItem(satir, COL_AD, item_ad)
 
-        # Fonksiyon — ComboBox
-        combo = QComboBox()
+        # Fonksiyon — NoScrollComboBox (tekerlek değiştirmesin)
+        combo = NoScrollComboBox()
+        combo.addItem("")  # Boş seçenek
         combo.addItems(FONKSIYON_LISTESI)
         combo.setEditable(True)
         combo.setStyleSheet(f"""
@@ -540,9 +550,7 @@ class BirimFormulTablosu(QWidget):
             }}
             QComboBox::drop-down {{ border: none; padding-right: 4px; }}
         """)
-        if s.fonksiyon in FONKSIYON_LISTESI:
-            combo.setCurrentText(s.fonksiyon)
-        elif s.fonksiyon:
+        if s.fonksiyon:
             combo.setCurrentText(s.fonksiyon)
         combo.currentTextChanged.connect(
             lambda txt, g=grup, i=vi: self._fonk_degisti(g, i, txt)
@@ -666,16 +674,34 @@ class BirimFormulTablosu(QWidget):
         tum = [s for g in self._gruplar for s in self._veri[g]]
         toplam_mg = sum(_float_veya_sifir(s.mg_tb) for s in tum)
 
+        import re
+        seri_boy = 0.0
         try:
-            seri_boy = _float_veya_sifir(self._seri_boyutu.replace(".", "").replace(",", ""))
-            if seri_boy == 0:
-                # Sayısal değil — belki "150.000 ftb" gibi
-                # Sadece sayıları al
-                import re
-                m = re.search(r"[\d.,]+", self._seri_boyutu.replace(".", "").replace(",", ""))
-                seri_boy = float(m.group()) if m else 0
+            # "150.000 ftb", "150000", "150,000 tb" gibi formatları yakala
+            temiz = self._seri_boyutu.strip()
+            # Türkçe binlik ayırıcı nokta ve ondalık virgülü düzelt
+            # Önce sayısal kısmı bul
+            m = re.search(r'[\d.,]+', temiz)
+            if m:
+                sayi_str = m.group()
+                # Eğer son karakter nokta/virgülse ve ondalık değilse binlik ayırıcı
+                # 150.000 → 150000, 150,000 → 150000
+                # Hem nokta hem virgül varsa: karmaşık
+                if '.' in sayi_str and ',' in sayi_str:
+                    # 1.234,56 → Türkçe format
+                    sayi_str = sayi_str.replace('.', '').replace(',', '.')
+                elif '.' in sayi_str:
+                    # 150.000 → binlik mi yoksa ondalık mı?
+                    # 3 hane sonrası nokta → binlik
+                    parcalar = sayi_str.split('.')
+                    if len(parcalar[-1]) == 3:  # binlik ayırıcı
+                        sayi_str = sayi_str.replace('.', '')
+                    # yoksa ondalık olarak bırak
+                elif ',' in sayi_str:
+                    sayi_str = sayi_str.replace(',', '')
+                seri_boy = float(sayi_str)
         except Exception:
-            seri_boy = 0
+            seri_boy = 0.0
 
         for grup in self._gruplar:
             for s in self._veri[grup]:
@@ -718,9 +744,53 @@ class BirimFormulTablosu(QWidget):
         self._genel_toplam_yaz(satir_idx)
         self._tablo.blockSignals(False)
 
-    def _hesapla_kg(self):
-        """Sadece kg/seri yeniden hesaplar (seri boyutu değişince)."""
-        self._hesapla_yuzde_kg()
+    def _tablo_key_press(self, event):
+        """Ctrl+V ile Excel/Word'den yapıştırma desteği."""
+        if event.matches(QKeySequence.StandardKey.Paste):
+            clipboard = QApplication.clipboard()
+            metin = clipboard.text()
+            if not metin:
+                return
+            satirlar = metin.strip().split('\n')
+            baslangic_satir = self._tablo.currentRow()
+            # Mevcut veri satırlarını bul
+            veri_satirlari = [r for r in self._satir_haritasi.keys()]
+            if not veri_satirlari:
+                # Boş tablo — ilk gruba ekle
+                for satir_metin in satirlar:
+                    kolonlar = satir_metin.split('\t')
+                    if len(kolonlar) >= 1 and kolonlar[0].strip():
+                        s = FormulSatiri(grup=self._gruplar[0])
+                        s.ad = kolonlar[0].strip()
+                        if len(kolonlar) >= 2: s.fonksiyon = kolonlar[1].strip()
+                        if len(kolonlar) >= 3: s.mg_tb = kolonlar[2].strip().replace(',','.')
+                        if len(kolonlar) >= 4: s.yuzde = kolonlar[3].strip().replace(',','.'); s.manuel_yuzde = True
+                        if len(kolonlar) >= 5: s.kg_seri = kolonlar[4].strip().replace(',','.'); s.manuel_kg = True
+                        self._veri[self._gruplar[0]].append(s)
+            else:
+                # Mevcut seçili satırdan başla
+                hedef_satir_idx = 0
+                if baslangic_satir in self._satir_haritasi:
+                    grup, vi = self._satir_haritasi[baslangic_satir]
+                else:
+                    grup = self._gruplar[0]
+                    vi = len(self._veri[grup])
+
+                for satir_metin in satirlar:
+                    kolonlar = satir_metin.split('\t')
+                    if len(kolonlar) >= 1 and kolonlar[0].strip():
+                        s = FormulSatiri(grup=grup)
+                        s.ad = kolonlar[0].strip()
+                        if len(kolonlar) >= 2: s.fonksiyon = kolonlar[1].strip()
+                        if len(kolonlar) >= 3: s.mg_tb = kolonlar[2].strip().replace(',','.')
+                        if len(kolonlar) >= 4: s.yuzde = kolonlar[3].strip().replace(',','.'); s.manuel_yuzde = True
+                        if len(kolonlar) >= 5: s.kg_seri = kolonlar[4].strip().replace(',','.'); s.manuel_kg = True
+                        self._veri[grup].append(s)
+
+            self._tabloyu_yenile()
+            self.degisti.emit()
+        else:
+            QTableWidget.keyPressEvent(self._tablo, event)
 
     # ── Olay İşleyiciler ───────────────────────────────────────────────────
 

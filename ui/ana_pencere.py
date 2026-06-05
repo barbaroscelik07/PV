@@ -22,6 +22,7 @@ from ui.stiller import (
 from ui.spec_karti import SpecKartiWidget
 from ui.yeni_proje_dialog import YeniProjeDialog
 from ui.birim_formul import BirimFormulWidget
+from ui.proje_ozeti import ProjeOzetiWidget
 
 import os
 
@@ -564,6 +565,17 @@ class AnaPencere(QMainWindow):
         self.eylem_farkli_kaydet.setEnabled(True)
         self.btn_word.setEnabled(True)
         self.btn_pdf.setEnabled(True)
+
+        # Proje özeti
+        if isinstance(self._placeholder_widgets.get("proje_ozeti"), ProjeOzetiWidget):
+            self._placeholder_widgets["proje_ozeti"].proje_guncelle(proje)
+        else:
+            po_w = ProjeOzetiWidget(proje)
+            po_w.degisti.connect(self._kayit_isaretle)
+            po_w.kaydedildi.connect(
+                lambda: self.statusBar().showMessage("Proje bilgileri güncellendi."))
+            po_w.kaydedildi.connect(lambda: self.proje_info.guncelle(self._proje))
+            self._widget_degistir("proje_ozeti", po_w)
 
         # Spec kartı
         if isinstance(self._placeholder_widgets.get("spec_karti"), SpecKartiWidget):
