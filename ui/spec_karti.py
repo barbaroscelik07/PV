@@ -322,12 +322,19 @@ class ImpuriteSatiri(QFrame):
         self.input_deger = QLineEdit(); self.input_deger.setPlaceholderText("Değer"); self.input_deger.setFixedWidth(70)
         l.addWidget(self.input_deger)
         l.addWidget(QLabel("%")); l.addStretch()
-        btn = QPushButton("✕"); btn.setFixedSize(20,20)
+        btn = QPushButton("✕"); btn.setFixedSize(22,22)
         btn.setToolTip("Bu impüriteyi sil")
         btn.setStyleSheet(f"""
-            QPushButton{{border:none;background:transparent;
-            color:{RENK_YAZI_UCUNCUL};font-size:11px;}}
-            QPushButton:hover{{color:#A32D2D;background:#FCEBEB;border-radius:3px;}}
+            QPushButton{{
+                border:1px solid {RENK_KENARLIK};
+                background:{RENK_BG_IKINCIL};
+                color:#A32D2D;font-size:11px;font-weight:bold;
+                border-radius:3px;
+            }}
+            QPushButton:hover{{
+                color:#A32D2D;background:#FCEBEB;
+                border:1px solid #F09595;
+            }}
         """)
         btn.clicked.connect(lambda: self.silindi.emit(self)); l.addWidget(btn)
         self.input_ad.textChanged.connect(self.degisti)
@@ -390,13 +397,15 @@ class EtkenAnalitikPanel(QWidget):
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0,0,0,0); layout.setSpacing(0)
-        layout.addWidget(_baslik_satiri(yildiz=True, sb=sb_goster, ipk=True))
+        layout.addWidget(_baslik_satiri(yildiz=True, sb=sb_goster, ipk=False))
 
         # Teşhis
         teshis_lbl = QLabel("Sabit: 'Standart ve numune alıkonma zamanı aynı olmalıdır.'")
         teshis_lbl.setStyleSheet(f"font-size:10px;color:{RENK_YAZI_UCUNCUL};font-style:italic;")
         self.row_teshis = TestSatiri("Teşhis", teshis_lbl,
                                      yildiz=True, sb=sb_goster, ipk=False)
+        if self.row_teshis.cb_sb:
+            self.row_teshis.cb_sb.setChecked(True)
         self.row_teshis.degisti.connect(self.degisti)
         layout.addWidget(self.row_teshis)
 
@@ -404,7 +413,7 @@ class EtkenAnalitikPanel(QWidget):
         self.miktar_w = MiktarWidget()
         self.miktar_w.degisti.connect(self.degisti)
         self.row_miktar = TestSatiri("Miktar Tayini", self.miktar_w,
-                                     yildiz=True, sb=sb_goster, ipk=True)
+                                     yildiz=True, sb=sb_goster, ipk=False)
         if self.row_miktar.cb_sb:
             self.row_miktar.cb_sb.setChecked(True)
         self.row_miktar.degisti.connect(self.degisti)
@@ -452,9 +461,7 @@ class EtkenAnalitikPanel(QWidget):
             self.cb_imp_sb = QCheckBox("SB"); self.cb_imp_sb.setStyleSheet(_cb_stil())
             self.cb_imp_sb.setChecked(True); self.cb_imp_sb.stateChanged.connect(self.degisti)
             imp_hl.addWidget(self.cb_imp_sb)
-        self.cb_imp_ipk = QCheckBox("IPK"); self.cb_imp_ipk.setStyleSheet(_cb_stil())
-        self.cb_imp_ipk.stateChanged.connect(self.degisti)
-        imp_hl.addWidget(self.cb_imp_ipk)
+        # IPK analitik testlerde yok
         imp_hl.addStretch(); layout.addWidget(imp_hdr)
 
         self._imp_container = QWidget()
@@ -497,8 +504,10 @@ class EtkenAnalitikPanel(QWidget):
         spek.miktar_birim = "mg"
         spek.miktar_tolerans = self.miktar_w.input_tol.text().strip()
         spek.miktar_yildiz = self.row_miktar.cb_yildiz.isChecked() if self.row_miktar.cb_yildiz else False
-        spek.miktar_ipk = self.row_miktar.cb_ipk.isChecked() if self.row_miktar.cb_ipk else False
+        spek.miktar_sb = self.row_miktar.cb_sb.isChecked() if self.row_miktar.cb_sb else False
+        spek.miktar_ipk = False
         spek.teshis_yildiz = self.row_teshis.cb_yildiz.isChecked() if self.row_teshis.cb_yildiz else False
+        spek.teshis_sb = self.row_teshis.cb_sb.isChecked() if self.row_teshis.cb_sb else False
         if self._kt_goster and hasattr(self, 'kt_alt'):
             spek.kt_alt = self.kt_alt.text().strip()
             spek.kt_ust = self.kt_ust.text().strip()
@@ -508,19 +517,24 @@ class EtkenAnalitikPanel(QWidget):
             spek.dis_q_kullan = self.dis_w.cb_q.isChecked()
             spek.dis_sure_dk = self.dis_w.input_sure.text().strip()
             spek.dis_yildiz = self.row_dis.cb_yildiz.isChecked() if self.row_dis.cb_yildiz else False
+            spek.dis_sb = self.row_dis.cb_sb.isChecked() if self.row_dis.cb_sb else False
         spek.impuriteler = [s.to_model() for s in self._imp_satirlari]
         spek.imp_yildiz = self.cb_imp_yildiz.isChecked()
-        spek.imp_ipk = self.cb_imp_ipk.isChecked()
+        spek.imp_sb = self.cb_imp_sb.isChecked() if self.cb_imp_sb else False
+        spek.imp_ipk = False
 
     def from_model(self, spek: EtkenMaddeAnalitikSpek):
         self.miktar_w.input_hedef.setText(spek.miktar_hedef)
         self.miktar_w.input_tol.setText(spek.miktar_tolerans)
         if self.row_miktar.cb_yildiz:
             self.row_miktar.cb_yildiz.setChecked(getattr(spek, 'miktar_yildiz', False))
-        if self.row_miktar.cb_ipk:
-            self.row_miktar.cb_ipk.setChecked(spek.miktar_ipk)
+        # SB checkbox'ları: modelde True ise True, modelde değer yoksa varsayılan True bırak
+        if self.row_miktar.cb_sb:
+            self.row_miktar.cb_sb.setChecked(getattr(spek, 'miktar_sb', True))
         if self.row_teshis.cb_yildiz:
             self.row_teshis.cb_yildiz.setChecked(getattr(spek, 'teshis_yildiz', False))
+        if self.row_teshis.cb_sb:
+            self.row_teshis.cb_sb.setChecked(getattr(spek, 'teshis_sb', True))
         if self._kt_goster and hasattr(self, 'kt_alt'):
             self.kt_alt.setText(getattr(spek, 'kt_alt', '85.0'))
             self.kt_ust.setText(getattr(spek, 'kt_ust', '115.0'))
@@ -528,13 +542,16 @@ class EtkenAnalitikPanel(QWidget):
             self.dis_w.input_q.setText(spek.dis_min_q)
             self.dis_w.cb_q.setChecked(getattr(spek, 'dis_q_kullan', True))
             self.dis_w.input_sure.setText(spek.dis_sure_dk)
+            if self.row_dis.cb_sb:
+                self.row_dis.cb_sb.setChecked(getattr(spek, 'dis_sb', True))
         for s in self._imp_satirlari[:]:
             s.deleteLater()
         self._imp_satirlari.clear()
         for imp in spek.impuriteler:
             self._imp_ekle(imp)
         self.cb_imp_yildiz.setChecked(getattr(spek, 'imp_yildiz', False))
-        self.cb_imp_ipk.setChecked(spek.imp_ipk)
+        if self.cb_imp_sb:
+            self.cb_imp_sb.setChecked(getattr(spek, 'imp_sb', True))
 
     def impuriteleri_aktar(self, hedef: 'EtkenAnalitikPanel'):
         """Bulk'tan çekirdek/film'e impürite ve miktar aktarımı."""
@@ -548,7 +565,6 @@ class EtkenAnalitikPanel(QWidget):
             m = s.to_model()
             hedef._imp_ekle(m)
         hedef.cb_imp_yildiz.setChecked(self.cb_imp_yildiz.isChecked())
-        hedef.cb_imp_ipk.setChecked(self.cb_imp_ipk.isChecked())
 
 
 # ─── Mikrobiyolojik Panel ─────────────────────────────────────────────────────
@@ -972,6 +988,15 @@ class BulkKatmanSekmesi(QScrollArea):
         for panel, idx in zip(self._em_paneller, self._katman_spek.etken_indeksler):
             if idx < len(analitik): panel.from_model(analitik[idx])
 
+    def set_aktar_callback(self, callback):
+        """SpecKartiWidget anlık aktarım callback'i."""
+        self._aktar_callback = callback
+
+    def _anlik_aktar(self):
+        """Bulk'ta değişiklik olunca anlık aktarım tetikle."""
+        if hasattr(self, '_aktar_callback') and self._aktar_callback:
+            self._aktar_callback(self)
+
 
 # ─── Ana Spec Kartı Widget ────────────────────────────────────────────────────
 
@@ -1054,6 +1079,7 @@ class SpecKartiWidget(QWidget):
             sekme = BulkKatmanSekmesi(katman_spek, self._proje)
             sekme.degisti.connect(self._on_degisti)
             sekme.from_model(self._proje.etken_analitik_spekler)
+            sekme.set_aktar_callback(self._bulk_anlik_aktar)
             self._bulk_sekmeleri.append(sekme)
             self.tabs.addTab(sekme, katman_spek.katman_adi)
 
@@ -1064,6 +1090,12 @@ class SpecKartiWidget(QWidget):
             self._sekme_cekirdek.degisti.connect(self._on_degisti)
             self._sekme_cekirdek.from_model(
                 self._proje.cekirdek_spek, self._proje.etken_analitik_spekler)
+            # from_model sonrası dissolüsyon sinyallerini bağla
+            for panel in self._sekme_cekirdek._em_paneller:
+                if hasattr(panel, 'dis_w'):
+                    panel.dis_w.degisti.connect(self._cekirdek_dis_anlik_aktar)
+                panel.miktar_w.degisti.connect(self._cekirdek_anlik_aktar)
+                panel.degisti.connect(self._cekirdek_anlik_aktar)
             self.tabs.addTab(self._sekme_cekirdek, "Çekirdek Tablet")
 
         # ── SONRA FİLM TABLET ──
@@ -1088,6 +1120,29 @@ class SpecKartiWidget(QWidget):
         """)
         self.lbl_degisiklik.setVisible(True)
         self.degisti.emit()
+
+    def _bulk_anlik_aktar(self, bulk_sekme: BulkKatmanSekmesi):
+        """Bulk'ta değişiklik olunca çekirdek ve film'e anlık aktar."""
+        indeksler = bulk_sekme._katman_spek.etken_indeksler
+        if self._sekme_cekirdek:
+            self._sekme_cekirdek.bulk_verisi_aktar(
+                bulk_sekme._em_paneller, indeksler)
+        if self._sekme_film:
+            self._sekme_film.bulk_verisi_aktar(
+                bulk_sekme._em_paneller, indeksler)
+
+    def _cekirdek_anlik_aktar(self):
+        """Çekirdek'te miktar/impürite değişince film'e anlık aktar."""
+        if self._sekme_cekirdek and self._sekme_film:
+            indeksler = list(range(len(self._sekme_cekirdek._em_paneller)))
+            self._sekme_film.bulk_verisi_aktar(
+                self._sekme_cekirdek._em_paneller, indeksler)
+
+    def _cekirdek_dis_anlik_aktar(self):
+        """Çekirdek dissolüsyon değişince film'e anlık aktar."""
+        if self._sekme_cekirdek and self._sekme_film:
+            self._sekme_film.cekirdek_dis_aktar(
+                self._sekme_cekirdek._em_paneller)
 
     def _kaydet(self):
         n = len(self._proje.etken_maddeler)

@@ -1,45 +1,40 @@
 """
 PV-DOC — Birim Formül ve Ürün Bilgileri (Modül 3)
-Tablo 1: Birim Formül (satır ekle/sil/sırala, % İçerik ve kg/seri otomatik)
-Tablo 2: Kapsanan Ürünler (seri bilgileri)
-Notlar  : PVP ve PVR için ayrı, dinamik not listesi
+Tablo 1: Birim formül — satır ekle/sil/taşı, % ve kg otomatik hesapla
+Tablo 2: Kapsanan ürünler
+Notlar : PVP / PVR ayrı
 """
 
+import re
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame, QLabel,
     QLineEdit, QPushButton, QScrollArea, QTabWidget,
-    QComboBox, QSizePolicy, QMessageBox, QAbstractItemView,
-    QTableWidget, QTableWidgetItem, QHeaderView, QApplication
+    QSizePolicy, QAbstractItemView, QTableWidget,
+    QTableWidgetItem, QHeaderView, QApplication, QMessageBox
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QMimeData
 from PyQt6.QtGui import QFont, QColor, QBrush, QKeySequence
 
-
-class NoScrollComboBox(QComboBox):
-    """Mouse tekerleğiyle değişmeyen ComboBox."""
-    def wheelEvent(self, e):
-        e.ignore()
-
-from core.models import ProjeVerisi, UrunFormu, TabletYapisi
+from core.models import ProjeVerisi, UrunFormu
 from ui.stiller import (
     RENK_PRIMARY, RENK_PRIMARY_ACIK, RENK_PRIMARY_KOYU,
     RENK_BG_BIRINCIL, RENK_BG_IKINCIL, RENK_KENARLIK,
     RENK_YAZI_BIRINCIL, RENK_YAZI_IKINCIL, RENK_YAZI_UCUNCUL,
-    RENK_YESIL, RENK_YESIL_BG, FONT_AILESI,
-    RENK_TURUNCU_BG, RENK_KIRMIZI_BG
+    RENK_YESIL, RENK_YESIL_BG, FONT_AILESI
 )
 
 
 # ─── Sabitler ────────────────────────────────────────────────────────────────
 
 FONKSIYON_LISTESI = [
+    "",
     "Etkin madde",
     "Dolgu Ajanı",
     "Bağlayıcı",
     "Dağıtıcı",
     "Lubrikant",
     "Kaydırıcı",
-    "pH Düzenleyici",
+    "pH Ajanı",
     "Kaplama Malzemesi",
     "Çözücü",
     "Boyar Madde",
@@ -49,15 +44,14 @@ FONKSIYON_LISTESI = [
     "Diğer",
 ]
 
-# Her ürün formuna göre varsayılan gruplar
 GRUP_ADLARI = {
-    UrunFormu.TABLET.value: ["Tablet"],
-    UrunFormu.FILM_TABLET.value: ["Katman I", "Katman II", "Kaplama"],
-    UrunFormu.KAPSUL.value: ["İç Formül", "Kapsül Kabuğu"],
-    UrunFormu.KAPSUL_FILM_TABLET.value: ["Katman I", "Katman II", "Kaplama", "Kapsül Kabuğu"],
+    UrunFormu.TABLET.value:            ["Tablet"],
+    UrunFormu.FILM_TABLET.value:       ["Katman I", "Katman II", "Kaplama"],
+    UrunFormu.KAPSUL.value:            ["İç Formül", "Kapsül Kabuğu"],
+    UrunFormu.KAPSUL_FILM_TABLET.value:["Katman I", "Katman II", "Kaplama", "Kapsül Kabuğu"],
 }
 
-# Sütun indeksleri
+# Sütun indeksleri — artık QTableWidget değil, her satır QWidget
 COL_DRAG = 0
 COL_AD   = 1
 COL_FONK = 2
@@ -68,37 +62,53 @@ COL_SIL  = 6
 N_COLS   = 7
 
 
-# ─── Yardımcı Fonksiyonlar ────────────────────────────────────────────────────
+# ─── Yardımcı ─────────────────────────────────────────────────────────────────
 
-def _float_veya_sifir(metin: str) -> float:
+def _float_or_zero(s: str) -> float:
     try:
-        return float(metin.replace(",", "."))
+        return float(str(s).replace(",", ".").strip())
     except (ValueError, AttributeError):
         return 0.0
 
 
-def _format_sayi(deger: float, ondalik: int = 3) -> str:
-    if deger == 0.0:
+def _fmt(val: float, n: int = 3) -> str:
+    if val == 0.0:
         return ""
-    return f"{deger:.{ondalik}f}".rstrip("0").rstrip(".")
+    s = f"{val:.{n}f}"
+    s = s.rstrip("0").rstrip(".")
+    return s
 
 
-# ─── Satır Widget'ı ───────────────────────────────────────────────────────────
+def _parse_seri(metin: str) -> float:
+    """'150.000 ftb' → 150000.0"""
+    if not metin:
+        return 0.0
+    temiz = metin.strip()
+    m = re.search(r'[\d.,]+', temiz)
+    if not m:
+        return 0.0
+    sayi = m.group()
+    parcalar = sayi.split('.')
+    virgul_parcalar = sayi.split(',')
+    # Türkçe format: 1.234,56 → 1234.56
+    if ',' in sayi and '.' in sayi:
+        sayi = sayi.replace('.', '').replace(',', '.')
+    elif '.' in sayi and len(parcalar) > 1 and len(parcalar[-1]) == 3:
+        sayi = sayi.replace('.', '')  # binlik ayırıcı
+    elif ',' in sayi and len(virgul_parcalar) > 1 and len(virgul_parcalar[-1]) == 3:
+        sayi = sayi.replace(',', '')
+    try:
+        return float(sayi)
+    except ValueError:
+        return 0.0
+
+
+# ─── Veri Modeli ──────────────────────────────────────────────────────────────
 
 class FormulSatiri:
-    """Birim formül tablosundaki tek bir satırın veri modeli."""
-
-    def __init__(
-        self,
-        ad: str = "",
-        fonksiyon: str = "",
-        mg_tb: str = "",
-        yuzde: str = "",
-        kg_seri: str = "",
-        grup: str = "",
-        manuel_yuzde: bool = False,
-        manuel_kg: bool = False,
-    ):
+    def __init__(self, ad="", fonksiyon="", mg_tb="",
+                 yuzde="", kg_seri="", grup="",
+                 manuel_yuzde=False, manuel_kg=False):
         self.ad = ad
         self.fonksiyon = fonksiyon
         self.mg_tb = mg_tb
@@ -108,328 +118,257 @@ class FormulSatiri:
         self.manuel_yuzde = manuel_yuzde
         self.manuel_kg = manuel_kg
 
-    def to_dict(self) -> dict:
-        return {
-            "ad": self.ad,
-            "fonksiyon": self.fonksiyon,
-            "mg_tb": self.mg_tb,
-            "yuzde": self.yuzde,
-            "kg_seri": self.kg_seri,
-            "grup": self.grup,
-            "manuel_yuzde": self.manuel_yuzde,
-            "manuel_kg": self.manuel_kg,
-        }
+    def to_dict(self):
+        return {k: v for k, v in self.__dict__.items()}
 
     @classmethod
-    def from_dict(cls, d: dict) -> "FormulSatiri":
-        return cls(
-            ad=d.get("ad", ""),
-            fonksiyon=d.get("fonksiyon", ""),
-            mg_tb=d.get("mg_tb", ""),
-            yuzde=d.get("yuzde", ""),
-            kg_seri=d.get("kg_seri", ""),
-            grup=d.get("grup", ""),
-            manuel_yuzde=d.get("manuel_yuzde", False),
-            manuel_kg=d.get("manuel_kg", False),
-        )
+    def from_dict(cls, d):
+        s = cls()
+        for k, v in d.items():
+            if hasattr(s, k):
+                setattr(s, k, v)
+        return s
 
 
-# ─── Not Satırı Widget ────────────────────────────────────────────────────────
+# ─── Not Satırı / Paneli ──────────────────────────────────────────────────────
 
 class NotSatiri(QFrame):
-    """Tek bir not: sembol + açıklama + sil butonu."""
-
     silindi = pyqtSignal(object)
     degisti = pyqtSignal()
 
-    def __init__(self, sembol: str = "", aciklama: str = "", parent=None):
+    def __init__(self, sembol="", aciklama="", parent=None):
         super().__init__(parent)
-        self.setStyleSheet(f"background: transparent;")
-
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 2, 0, 2)
-        layout.setSpacing(8)
-
+        l = QHBoxLayout(self); l.setContentsMargins(0,2,0,2); l.setSpacing(8)
         self.input_sembol = QLineEdit(sembol)
-        self.input_sembol.setPlaceholderText("Sembol")
-        self.input_sembol.setFixedWidth(80)
-        self.input_sembol.setStyleSheet(f"""
-            border: 1px solid {RENK_KENARLIK};
-            border-radius: 5px;
-            padding: 3px 7px;
-            font-size: 12px;
-            font-family: {FONT_AILESI};
-            background: {RENK_BG_BIRINCIL};
-        """)
-        layout.addWidget(self.input_sembol)
-
+        self.input_sembol.setPlaceholderText("Sembol"); self.input_sembol.setFixedWidth(80)
+        l.addWidget(self.input_sembol)
         self.input_aciklama = QLineEdit(aciklama)
         self.input_aciklama.setPlaceholderText("Açıklama")
-        self.input_aciklama.setStyleSheet(f"""
-            border: 1px solid {RENK_KENARLIK};
-            border-radius: 5px;
-            padding: 3px 7px;
-            font-size: 12px;
-            font-family: {FONT_AILESI};
-            background: {RENK_BG_BIRINCIL};
+        l.addWidget(self.input_aciklama, 1)
+        btn = QPushButton("✕"); btn.setFixedSize(24,24)
+        btn.setStyleSheet(f"""
+            QPushButton{{border:1px solid {RENK_KENARLIK};background:{RENK_BG_IKINCIL};
+            color:#A32D2D;font-size:12px;font-weight:bold;border-radius:3px;}}
+            QPushButton:hover{{background:#FCEBEB;border:1px solid #F09595;}}
         """)
-        layout.addWidget(self.input_aciklama, 1)
-
-        btn_sil = QPushButton("✕")
-        btn_sil.setFixedSize(26, 26)
-        btn_sil.setStyleSheet(f"""
-            QPushButton {{
-                border: none; background: transparent;
-                color: {RENK_YAZI_UCUNCUL}; font-size: 13px;
-            }}
-            QPushButton:hover {{
-                background: #FCEBEB; color: #A32D2D;
-                border-radius: 4px;
-            }}
-        """)
-        btn_sil.clicked.connect(lambda: self.silindi.emit(self))
-        layout.addWidget(btn_sil)
-
+        btn.clicked.connect(lambda: self.silindi.emit(self)); l.addWidget(btn)
         self.input_sembol.textChanged.connect(self.degisti)
         self.input_aciklama.textChanged.connect(self.degisti)
 
-    def to_dict(self) -> dict:
-        return {
-            "sembol": self.input_sembol.text().strip(),
-            "aciklama": self.input_aciklama.text().strip(),
-        }
+    def to_dict(self):
+        return {"sembol": self.input_sembol.text().strip(),
+                "aciklama": self.input_aciklama.text().strip()}
 
-
-# ─── Not Paneli ───────────────────────────────────────────────────────────────
 
 class NotPaneli(QWidget):
-    """PVP veya PVR için dinamik not listesi."""
-
     degisti = pyqtSignal()
-
-    VARSAYILAN_NOTLAR = [
-        {"sembol": "*", "aciklama": "Uçucudur bitmiş üründe yer almaz."},
-        {"sembol": "k.m.", "aciklama": "kafi miktarda"},
+    VARSAYILAN = [
+        {"sembol": "*",    "aciklama": "Uçucudur bitmiş üründe yer almaz."},
+        {"sembol": "k.m.", "aciklama": "Kafi miktarda"},
         {"sembol": "U.Y.", "aciklama": "Uygulama yoktur"},
     ]
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._satirlar: list[NotSatiri] = []
+        l = QVBoxLayout(self); l.setContentsMargins(0,0,0,0); l.setSpacing(0)
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
+        hdr = QFrame()
+        hdr.setStyleSheet(f"background:{RENK_BG_IKINCIL};border-bottom:1px solid {RENK_KENARLIK};")
+        hl = QHBoxLayout(hdr); hl.setContentsMargins(12,5,12,5)
+        for txt, w in [("Sembol", 80), ("Açıklama", 0)]:
+            lb = QLabel(txt)
+            lb.setStyleSheet(f"font-size:10px;font-weight:bold;color:{RENK_YAZI_IKINCIL};")
+            if w: lb.setFixedWidth(w)
+            hl.addWidget(lb)
+        l.addWidget(hdr)
 
-        # Başlık
-        baslik = QFrame()
-        baslik.setStyleSheet(f"""
-            background: {RENK_BG_IKINCIL};
-            border-bottom: 1px solid {RENK_KENARLIK};
+        self._cont = QWidget(); self._cl = QVBoxLayout(self._cont)
+        self._cl.setContentsMargins(12,4,12,4); self._cl.setSpacing(3)
+        l.addWidget(self._cont)
+
+        btn = QPushButton("+ Not Ekle")
+        btn.setStyleSheet(f"""
+            QPushButton{{border:1px dashed {RENK_PRIMARY};border-radius:5px;
+            background:transparent;color:{RENK_PRIMARY};font-size:11px;
+            padding:4px 12px;margin:4px 12px;}}
+            QPushButton:hover{{background:{RENK_PRIMARY_ACIK};}}
         """)
-        bl = QHBoxLayout(baslik)
-        bl.setContentsMargins(12, 6, 12, 6)
-        lbl_s = QLabel("Sembol")
-        lbl_s.setFixedWidth(80)
-        lbl_s.setStyleSheet(f"font-size: 10px; font-weight: bold; color: {RENK_YAZI_IKINCIL};")
-        bl.addWidget(lbl_s)
-        lbl_a = QLabel("Açıklama")
-        lbl_a.setStyleSheet(f"font-size: 10px; font-weight: bold; color: {RENK_YAZI_IKINCIL};")
-        bl.addWidget(lbl_a, 1)
-        layout.addWidget(baslik)
+        btn.clicked.connect(lambda: self._ekle()); l.addWidget(btn)
 
-        # Satır konteyneri
-        self._container = QWidget()
-        self._container_layout = QVBoxLayout(self._container)
-        self._container_layout.setContentsMargins(12, 4, 12, 4)
-        self._container_layout.setSpacing(2)
-        layout.addWidget(self._container)
-
-        # Ekle butonu
-        btn_ekle = QPushButton("+ Not Ekle")
-        btn_ekle.setStyleSheet(f"""
-            QPushButton {{
-                border: 1px dashed {RENK_PRIMARY};
-                border-radius: 5px;
-                background: transparent;
-                color: {RENK_PRIMARY};
-                font-size: 11px;
-                padding: 4px 12px;
-                margin: 4px 12px;
-            }}
-            QPushButton:hover {{ background: {RENK_PRIMARY_ACIK}; }}
-        """)
-        btn_ekle.clicked.connect(lambda: self._not_ekle())
-        layout.addWidget(btn_ekle)
-
-    def _not_ekle(self, sembol: str = "", aciklama: str = ""):
-        satir = NotSatiri(sembol, aciklama, self._container)
-        satir.silindi.connect(self._not_sil)
-        satir.degisti.connect(self.degisti)
-        self._satirlar.append(satir)
-        self._container_layout.addWidget(satir)
+    def _ekle(self, sembol="", aciklama=""):
+        s = NotSatiri(sembol, aciklama, self._cont)
+        s.silindi.connect(self._sil); s.degisti.connect(self.degisti)
+        self._satirlar.append(s); self._cl.addWidget(s)
         self.degisti.emit()
 
-    def _not_sil(self, satir: NotSatiri):
-        self._satirlar.remove(satir)
-        satir.deleteLater()
-        self.degisti.emit()
+    def _sil(self, s):
+        self._satirlar.remove(s); s.deleteLater(); self.degisti.emit()
 
-    def yukle(self, notlar: list):
-        for s in self._satirlar[:]:
-            s.deleteLater()
+    def yukle(self, notlar):
+        for s in self._satirlar[:]: s.deleteLater()
         self._satirlar.clear()
-        for n in notlar:
-            self._not_ekle(n.get("sembol", ""), n.get("aciklama", ""))
+        for n in notlar: self._ekle(n.get("sembol",""), n.get("aciklama",""))
 
-    def varsayilan_yukle(self):
-        self.yukle(self.VARSAYILAN_NOTLAR)
+    def varsayilan_yukle(self): self.yukle(self.VARSAYILAN)
 
-    def to_list(self) -> list:
-        return [s.to_dict() for s in self._satirlar]
+    def to_list(self): return [s.to_dict() for s in self._satirlar]
 
 
 # ─── Birim Formül Tablosu ─────────────────────────────────────────────────────
 
 class BirimFormulTablosu(QWidget):
     """
-    Birim formül tablosu.
-    Gruplar (Katman I / II / Kaplama veya tek Tablet), her grup kendi
-    alt toplamını gösterir. Genel toplam en altta.
-    % İçerik ve kg/seri otomatik hesaplanır; kullanıcı override edebilir.
+    Temiz QTableWidget tabanlı birim formül tablosu.
+    - Tek tıkla düzenleme
+    - Sürükle-bırak sıralama
+    - Ctrl+V ile toplu yapıştırma (tüm tablo: Ad\tFonksiyon\tmg\t%\tkg)
+    - Her zaman görünür kırmızı sil butonu
+    - Fonksiyon dropdown ok'u görünür
     """
-
     degisti = pyqtSignal()
 
     def __init__(self, urun_formu: str, seri_boyutu: str = "", parent=None):
         super().__init__(parent)
-        self._urun_formu = urun_formu
+        self._gruplar = GRUP_ADLARI.get(urun_formu, ["Tablet"])
+        self._veri: dict[str, list[FormulSatiri]] = {g: [] for g in self._gruplar}
         self._seri_boyutu = seri_boyutu
-        self._gruplar: list[str] = GRUP_ADLARI.get(
-            urun_formu, ["Tablet"]
-        )
-        # {grup_adi: [FormulSatiri]}
-        self._veri: dict[str, list[FormulSatiri]] = {
-            g: [] for g in self._gruplar
-        }
-        self._guncelleniyor = False  # reentrance koruması
+        self._yukleniyor = False
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
+        layout = QVBoxLayout(self); layout.setContentsMargins(0,0,0,0); layout.setSpacing(0)
 
         # Tablo
         self._tablo = QTableWidget()
         self._tablo.setColumnCount(N_COLS)
-        self._tablo.setHorizontalHeaderLabels([
-            "", "Hammadde / Yardımcı Madde", "Fonksiyon",
-            "mg/tb", "% İçerik", "kg/seri", ""
-        ])
-        # Tüm sütunlar kullanıcı tarafından sürükleyerek genişletilebilir
-        self._tablo.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
-        self._tablo.horizontalHeader().setStretchLastSection(False)
-        self._tablo.setColumnWidth(COL_DRAG, 22)
-        self._tablo.setColumnWidth(COL_AD, 175)
-        self._tablo.setColumnWidth(COL_FONK, 125)
-        self._tablo.setColumnWidth(COL_MG, 62)
-        self._tablo.setColumnWidth(COL_YUZ, 62)
-        self._tablo.setColumnWidth(COL_KG, 72)
-        self._tablo.setColumnWidth(COL_SIL, 28)
+        self._tablo.setHorizontalHeaderLabels(
+            ["", "Hammadde / Yardımcı Madde", "Fonksiyon",
+             "mg/tb", "% İçerik", "kg/seri", ""])
+        hdr = self._tablo.horizontalHeader()
+        hdr.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        hdr.setStretchLastSection(False)
+        self._tablo.setColumnWidth(COL_DRAG, 26)
+        self._tablo.setColumnWidth(COL_AD,  170)
+        self._tablo.setColumnWidth(COL_FONK,125)
+        self._tablo.setColumnWidth(COL_MG,   65)
+        self._tablo.setColumnWidth(COL_YUZ,  65)
+        self._tablo.setColumnWidth(COL_KG,   72)
+        self._tablo.setColumnWidth(COL_SIL,  36)
         self._tablo.verticalHeader().setVisible(False)
         self._tablo.setShowGrid(True)
-        self._tablo.setDragEnabled(True)
-        self._tablo.setAcceptDrops(True)
-        self._tablo.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
-        self._tablo.setDropIndicatorShown(True)
         self._tablo.setAlternatingRowColors(False)
-        self._tablo.setEditTriggers(QAbstractItemView.EditTrigger.AllEditTriggers)
+        # Tek tıkla düzenleme
+        self._tablo.setEditTriggers(
+            QAbstractItemView.EditTrigger.CurrentChanged |
+            QAbstractItemView.EditTrigger.AnyKeyPressed |
+            QAbstractItemView.EditTrigger.SelectedClicked)
+        self._tablo.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self._tablo.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self._tablo.setStyleSheet(f"""
             QTableWidget {{
-                border: none;
-                font-size: 11px;
-                font-family: {FONT_AILESI};
-                gridline-color: {RENK_KENARLIK};
+                border:none;font-size:11px;font-family:{FONT_AILESI};
+                gridline-color:{RENK_KENARLIK};
             }}
-            QTableWidget::item {{
-                padding: 2px 6px;
-            }}
-            QTableWidget::item:selected {{
-                background: {RENK_PRIMARY_ACIK};
-                color: {RENK_PRIMARY_KOYU};
-            }}
-            QHeaderView::section {{
-                background: {RENK_BG_IKINCIL};
-                border: none;
-                border-right: 1px solid {RENK_KENARLIK};
-                border-bottom: 1px solid {RENK_KENARLIK};
-                padding: 4px 6px;
-                font-size: 10px;
-                font-weight: bold;
-                color: {RENK_YAZI_IKINCIL};
-            }}
+            QTableWidget::item{{padding:2px 6px;}}
+            QTableWidget::item:selected{{
+                background:{RENK_PRIMARY_ACIK};color:{RENK_PRIMARY_KOYU};}}
+            QHeaderView::section{{
+                background:{RENK_BG_IKINCIL};border:none;
+                border-right:1px solid {RENK_KENARLIK};
+                border-bottom:1px solid {RENK_KENARLIK};
+                padding:4px 6px;font-size:10px;font-weight:bold;
+                color:{RENK_YAZI_IKINCIL};}}
         """)
         self._tablo.cellChanged.connect(self._hucre_degisti)
-        self._tablo.keyPressEvent = self._tablo_key_press
+        self._tablo.installEventFilter(self)
         layout.addWidget(self._tablo)
 
-        # Alt bilgi
+        # Alt butonlar
         alt = QFrame()
-        alt.setStyleSheet(f"""
-            background: {RENK_BG_IKINCIL};
-            border-top: 1px solid {RENK_KENARLIK};
-        """)
-        alt_l = QHBoxLayout(alt)
-        alt_l.setContentsMargins(12, 6, 12, 6)
-        alt_l.setSpacing(8)
-
+        alt.setStyleSheet(
+            f"background:{RENK_BG_IKINCIL};border-top:1px solid {RENK_KENARLIK};")
+        al = QHBoxLayout(alt); al.setContentsMargins(10,5,10,5); al.setSpacing(6)
         for grup in self._gruplar:
-            btn = QPushButton(f"+ {grup}'a Satır Ekle")
+            btn = QPushButton(f"+ {grup}")
             btn.setStyleSheet(f"""
-                QPushButton {{
-                    border: 1px solid {RENK_KENARLIK};
-                    border-radius: 5px;
-                    background: {RENK_BG_BIRINCIL};
-                    color: {RENK_YAZI_IKINCIL};
-                    font-size: 11px;
-                    padding: 4px 10px;
-                }}
-                QPushButton:hover {{
-                    background: {RENK_PRIMARY_ACIK};
-                    color: {RENK_PRIMARY};
-                    border-color: {RENK_PRIMARY};
-                }}
+                QPushButton{{border:1px solid {RENK_PRIMARY};border-radius:5px;
+                background:{RENK_PRIMARY_ACIK};color:{RENK_PRIMARY};
+                font-size:11px;padding:3px 10px;}}
+                QPushButton:hover{{background:{RENK_PRIMARY};color:white;}}
             """)
-            btn.clicked.connect(lambda checked, g=grup: self.satir_ekle(g))
-            alt_l.addWidget(btn)
-
-        alt_l.addStretch()
-
-        self.lbl_toplam = QLabel("Toplam: — mg/tb")
-        self.lbl_toplam.setStyleSheet(f"""
-            font-size: 11px;
-            font-weight: bold;
-            color: {RENK_YAZI_BIRINCIL};
-        """)
-        alt_l.addWidget(self.lbl_toplam)
+            btn.clicked.connect(lambda _, g=grup: self.satir_ekle(g))
+            al.addWidget(btn)
+        al.addStretch()
+        self.lbl_toplam = QLabel("Toplam: — mg")
+        self.lbl_toplam.setStyleSheet(
+            f"font-size:11px;font-weight:bold;color:{RENK_YAZI_BIRINCIL};")
+        al.addWidget(self.lbl_toplam)
         layout.addWidget(alt)
 
-        self._tabloyu_yenile()
+        self._yenile()
 
-    # ── Veri yönetimi ──────────────────────────────────────────────────────
+    # ── Olay Filtresi (Ctrl+V) ────────────────────────────────────────────────
 
-    def satir_ekle(self, grup: str, satir: FormulSatiri = None):
-        if satir is None:
-            satir = FormulSatiri(grup=grup)
-        self._veri[grup].append(satir)
-        self._tabloyu_yenile()
+    def eventFilter(self, obj, event):
+        if obj is self._tablo and event.type() == event.Type.KeyPress:
+            if event.matches(QKeySequence.StandardKey.Paste):
+                self._yapistir()
+                return True
+        return super().eventFilter(obj, event)
+
+    def _yapistir(self):
+        """Excel/Word tablosunu yapıştır.
+        Format: Ad [tab] Fonksiyon [tab] mg/tb [tab] % [tab] kg
+        Her satır ayrı bir formül satırı olur.
+        """
+        metin = QApplication.clipboard().text().strip()
+        if not metin:
+            return
+
+        # Hedef grup
+        secili = self._tablo.currentRow()
+        hedef_grup = self._gruplar[0]
+        if secili in self._satir_haritasi:
+            hedef_grup = self._satir_haritasi[secili][0]
+
+        eklenen = 0
+        for satir_metin in metin.split('\n'):
+            satir_metin = satir_metin.strip('\r\n ')
+            if not satir_metin:
+                continue
+            k = [x.strip() for x in satir_metin.split('\t')]
+            if not k[0]:
+                continue
+            s = FormulSatiri(grup=hedef_grup)
+            s.ad = k[0]
+            if len(k) > 1: s.fonksiyon = k[1]
+            if len(k) > 2: s.mg_tb = k[2].replace(',', '.')
+            if len(k) > 3:
+                s.yuzde = k[3].replace(',', '.')
+                s.manuel_yuzde = bool(s.yuzde)
+            if len(k) > 4:
+                s.kg_seri = k[4].replace(',', '.')
+                s.manuel_kg = bool(s.kg_seri)
+            self._veri[hedef_grup].append(s)
+            eklenen += 1
+
+        if eklenen:
+            self._yenile()
+            self.degisti.emit()
+
+    # ── Veri Yönetimi ─────────────────────────────────────────────────────────
+
+    def satir_ekle(self, grup: str, s: FormulSatiri = None):
+        if s is None:
+            s = FormulSatiri(grup=grup)
+        self._veri[grup].append(s)
+        self._yenile()
         self.degisti.emit()
 
     def seri_boyutu_guncelle(self, boyut: str):
         self._seri_boyutu = boyut
-        self._hesapla_kg()
+        self._hesapla()
 
     def yukle(self, satirlar: list):
-        """Kaydedilmiş veriden yükler."""
         for g in self._gruplar:
             self._veri[g] = []
         for d in satirlar:
@@ -437,10 +376,9 @@ class BirimFormulTablosu(QWidget):
             if g not in self._veri:
                 g = self._gruplar[0]
             self._veri[g].append(FormulSatiri.from_dict(d))
-        self._tabloyu_yenile()
+        self._yenile()
 
     def to_list(self) -> list:
-        """Tüm satırları dict listesi olarak döner."""
         sonuc = []
         for g in self._gruplar:
             for s in self._veri[g]:
@@ -448,717 +386,388 @@ class BirimFormulTablosu(QWidget):
                 sonuc.append(s.to_dict())
         return sonuc
 
-    # ── Tablo render ───────────────────────────────────────────────────────
+    # ── Tablo Render ──────────────────────────────────────────────────────────
 
-    def _tabloyu_yenile(self):
-        self._guncelleniyor = True
+    def _yenile(self):
+        self._yukleniyor = True
         self._tablo.clearContents()
+        self._satir_haritasi: dict[int, tuple[str, int]] = {}
 
-        # Toplam satır sayısını hesapla
-        # Her grup için: 1 başlık + N veri + 1 alt toplam
-        toplam_satir = 0
-        for g in self._gruplar:
-            toplam_satir += 1 + len(self._veri[g]) + 1
-        # Genel toplam
-        toplam_satir += 1
-        self._tablo.setRowCount(toplam_satir)
+        # Toplam satır sayısı
+        n = sum(1 + len(self._veri[g]) + 1 for g in self._gruplar) + 1
+        self._tablo.setRowCount(n)
 
-        satir_idx = 0
-        self._satir_haritasi = {}  # tablo_satır -> (grup, veri_idx)
-
+        r = 0
         for grup in self._gruplar:
-            # Grup başlığı
-            self._grup_satiri_yaz(satir_idx, grup)
-            satir_idx += 1
+            self._grup_baslik(r, grup); r += 1
+            for vi, s in enumerate(self._veri[grup]):
+                self._veri_satiri(r, grup, vi, s)
+                self._satir_haritasi[r] = (grup, vi)
+                r += 1
+            self._alt_toplam(r, grup); r += 1
+        self._genel_toplam(r)
 
-            # Veri satırları
-            for vi, formul_s in enumerate(self._veri[grup]):
-                self._veri_satiri_yaz(satir_idx, grup, vi, formul_s)
-                self._satir_haritasi[satir_idx] = (grup, vi)
-                satir_idx += 1
+        self._yukleniyor = False
+        self._hesapla()
 
-            # Alt toplam
-            self._alt_toplam_yaz(satir_idx, grup)
-            satir_idx += 1
+    def _grup_baslik(self, r: int, grup: str):
+        self._tablo.setRowHeight(r, 26)
+        for c in range(N_COLS):
+            it = QTableWidgetItem()
+            it.setFlags(Qt.ItemFlag.NoItemFlags)
+            it.setBackground(QBrush(QColor(RENK_PRIMARY_ACIK)))
+            self._tablo.setItem(r, c, it)
+        lbl = QTableWidgetItem(f"  {grup}")
+        lbl.setFlags(Qt.ItemFlag.NoItemFlags)
+        lbl.setBackground(QBrush(QColor(RENK_PRIMARY_ACIK)))
+        lbl.setForeground(QBrush(QColor(RENK_PRIMARY_KOYU)))
+        f = QFont(FONT_AILESI, 10); f.setBold(True); lbl.setFont(f)
+        self._tablo.setItem(r, COL_AD, lbl)
 
-        # Genel toplam
-        self._genel_toplam_yaz(satir_idx)
+    def _veri_satiri(self, r: int, grup: str, vi: int, s: FormulSatiri):
+        self._tablo.setRowHeight(r, 28)
 
-        self._guncelleniyor = False
-        self._hesapla_yuzde_kg()
-
-    def _grup_satiri_yaz(self, satir: int, grup: str):
-        self._tablo.setRowHeight(satir, 28)
-        for col in range(N_COLS):
-            item = QTableWidgetItem()
-            item.setFlags(Qt.ItemFlag.NoItemFlags)
-            item.setBackground(QBrush(QColor(RENK_PRIMARY_ACIK)))
-            self._tablo.setItem(satir, col, item)
-
-        item_ad = QTableWidgetItem(f"  {grup}")
-        item_ad.setFlags(Qt.ItemFlag.NoItemFlags)
-        item_ad.setBackground(QBrush(QColor(RENK_PRIMARY_ACIK)))
-        item_ad.setForeground(QBrush(QColor(RENK_PRIMARY_KOYU)))
-        font = QFont(FONT_AILESI, 10)
-        font.setBold(True)
-        item_ad.setFont(font)
-        self._tablo.setItem(satir, COL_AD, item_ad)
-
-        # "+ Bu gruba satır ekle" butonu
-        btn = QPushButton("+")
-        btn.setFixedSize(22, 22)
-        btn.setStyleSheet(f"""
-            QPushButton {{
-                border: 1px solid {RENK_PRIMARY};
-                border-radius: 3px;
-                background: {RENK_PRIMARY_ACIK};
-                color: {RENK_PRIMARY};
-                font-size: 13px;
-                font-weight: bold;
-            }}
-            QPushButton:hover {{ background: {RENK_PRIMARY}; color: white; }}
-        """)
-        btn.clicked.connect(lambda checked, g=grup: self.satir_ekle(g))
-        w = QWidget()
-        wl = QHBoxLayout(w)
-        wl.setContentsMargins(1, 2, 1, 2)
-        wl.addWidget(btn)
-        self._tablo.setCellWidget(satir, COL_SIL, w)
-
-    def _veri_satiri_yaz(self, satir: int, grup: str, vi: int, s: FormulSatiri):
-        self._tablo.setRowHeight(satir, 30)
-
-        # Sürükleme ikonu
-        drag_item = QTableWidgetItem("⠿")
-        drag_item.setFlags(Qt.ItemFlag.ItemIsEnabled)
-        drag_item.setForeground(QBrush(QColor(RENK_YAZI_UCUNCUL)))
-        drag_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._tablo.setItem(satir, COL_DRAG, drag_item)
+        # Sürükleme
+        drag = QTableWidgetItem("⠿")
+        drag.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+        drag.setForeground(QBrush(QColor(RENK_YAZI_UCUNCUL)))
+        drag.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._tablo.setItem(r, COL_DRAG, drag)
 
         # Ad
-        item_ad = QTableWidgetItem(s.ad)
-        self._tablo.setItem(satir, COL_AD, item_ad)
+        self._tablo.setItem(r, COL_AD, QTableWidgetItem(s.ad))
 
-        # Fonksiyon — NoScrollComboBox (tekerlek değiştirmesin)
-        combo = NoScrollComboBox()
-        combo.addItem("")  # Boş seçenek
-        combo.addItems(FONKSIYON_LISTESI)
-        combo.setEditable(True)
-        combo.setStyleSheet(f"""
-            QComboBox {{
-                border: none;
-                font-size: 11px;
-                font-family: {FONT_AILESI};
-                padding: 1px 20px 1px 4px;
-                background: transparent;
-            }}
-            QComboBox::drop-down {{
-                subcontrol-origin: padding;
-                subcontrol-position: top right;
-                width: 18px;
-                border-left: 1px solid {RENK_KENARLIK};
-                background: {RENK_BG_IKINCIL};
-            }}
-            QComboBox::down-arrow {{
-                width: 8px; height: 8px;
-                image: none;
-                border-left: 3px solid transparent;
-                border-right: 3px solid transparent;
-                border-top: 5px solid {RENK_YAZI_IKINCIL};
-            }}
-        """)
-        if s.fonksiyon:
-            combo.setCurrentText(s.fonksiyon)
-        combo.currentTextChanged.connect(
-            lambda txt, g=grup, i=vi: self._fonk_degisti(g, i, txt)
-        )
-        self._tablo.setCellWidget(satir, COL_FONK, combo)
+        # Fonksiyon — inline widget yerine özel hücre
+        fonk_item = QTableWidgetItem(s.fonksiyon)
+        self._tablo.setItem(r, COL_FONK, fonk_item)
 
         # mg/tb
-        item_mg = QTableWidgetItem(s.mg_tb)
-        item_mg.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        self._tablo.setItem(satir, COL_MG, item_mg)
+        mg = QTableWidgetItem(s.mg_tb)
+        mg.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self._tablo.setItem(r, COL_MG, mg)
 
-        # % İçerik — otomatik (açık gri) ya da manuel (normal)
-        item_yuz = QTableWidgetItem(s.yuzde)
-        item_yuz.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        # % İçerik
+        yuz = QTableWidgetItem(s.yuzde)
+        yuz.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         if not s.manuel_yuzde:
-            item_yuz.setForeground(QBrush(QColor(RENK_YAZI_UCUNCUL)))
-        self._tablo.setItem(satir, COL_YUZ, item_yuz)
+            yuz.setForeground(QBrush(QColor(RENK_YAZI_UCUNCUL)))
+        self._tablo.setItem(r, COL_YUZ, yuz)
 
-        # kg/seri — otomatik (açık gri) ya da manuel (normal)
-        item_kg = QTableWidgetItem(s.kg_seri)
-        item_kg.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        # kg/seri
+        kg = QTableWidgetItem(s.kg_seri)
+        kg.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         if not s.manuel_kg:
-            item_kg.setForeground(QBrush(QColor(RENK_YAZI_UCUNCUL)))
-        self._tablo.setItem(satir, COL_KG, item_kg)
+            kg.setForeground(QBrush(QColor(RENK_YAZI_UCUNCUL)))
+        self._tablo.setItem(r, COL_KG, kg)
 
-        # Sil butonu
-        btn_sil = QPushButton("✕")
-        btn_sil.setFixedSize(22, 22)
-        btn_sil.setToolTip("Bu satırı sil")
-        btn_sil.setStyleSheet(f"""
-            QPushButton {{
-                border: 1px solid {RENK_KENARLIK}; background: {RENK_BG_IKINCIL};
-                color: #A32D2D; font-size: 12px; font-weight: bold;
-                border-radius: 3px;
-            }}
-            QPushButton:hover {{
-                background: #FCEBEB; color: #A32D2D;
-                border: 1px solid #F09595;
-            }}
-        """)
-        btn_sil.clicked.connect(lambda checked, g=grup, i=vi: self._satir_sil(g, i))
-        w = QWidget()
-        wl = QHBoxLayout(w)
-        wl.setContentsMargins(2, 2, 2, 2)
-        wl.addWidget(btn_sil)
-        self._tablo.setCellWidget(satir, COL_SIL, w)
+        # Sil — her zaman görünür kırmızı X
+        sil = QTableWidgetItem("✕")
+        sil.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+        sil.setForeground(QBrush(QColor("#C0392B")))
+        sil.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+        f2 = QFont(FONT_AILESI, 12); f2.setBold(True); sil.setFont(f2)
+        sil.setBackground(QBrush(QColor("#FCEBEB")))
+        sil.setToolTip("Bu satırı sil")
+        self._tablo.setItem(r, COL_SIL, sil)
 
-    def _alt_toplam_yaz(self, satir: int, grup: str):
-        self._tablo.setRowHeight(satir, 26)
-        for col in range(N_COLS):
-            item = QTableWidgetItem()
-            item.setFlags(Qt.ItemFlag.NoItemFlags)
-            item.setBackground(QBrush(QColor(RENK_BG_IKINCIL)))
-            self._tablo.setItem(satir, col, item)
+    def _alt_toplam(self, r: int, grup: str):
+        self._tablo.setRowHeight(r, 24)
+        toplam_mg = sum(_float_or_zero(s.mg_tb) for s in self._veri[grup])
+        toplam_kg = sum(_float_or_zero(s.kg_seri) for s in self._veri[grup])
+        f = QFont(FONT_AILESI, 10); f.setBold(True)
+        for c in range(N_COLS):
+            it = QTableWidgetItem(); it.setFlags(Qt.ItemFlag.NoItemFlags)
+            it.setBackground(QBrush(QColor(RENK_BG_IKINCIL)))
+            self._tablo.setItem(r, c, it)
+        for c, txt in [(COL_AD, f"  {grup} Toplam"),
+                       (COL_MG, _fmt(toplam_mg) if toplam_mg else ""),
+                       (COL_KG, _fmt(toplam_kg) if toplam_kg else "")]:
+            it = QTableWidgetItem(txt); it.setFlags(Qt.ItemFlag.NoItemFlags)
+            it.setBackground(QBrush(QColor(RENK_BG_IKINCIL)))
+            it.setForeground(QBrush(QColor(RENK_YAZI_IKINCIL))); it.setFont(f)
+            if c in (COL_MG, COL_KG):
+                it.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            self._tablo.setItem(r, c, it)
 
-        toplam_mg = sum(_float_veya_sifir(s.mg_tb) for s in self._veri[grup])
-        toplam_kg = sum(_float_veya_sifir(s.kg_seri) for s in self._veri[grup])
-
-        font = QFont(FONT_AILESI, 10)
-        font.setBold(True)
-
-        item_lbl = QTableWidgetItem(f"  {grup} Toplam")
-        item_lbl.setFlags(Qt.ItemFlag.NoItemFlags)
-        item_lbl.setBackground(QBrush(QColor(RENK_BG_IKINCIL)))
-        item_lbl.setForeground(QBrush(QColor(RENK_YAZI_IKINCIL)))
-        item_lbl.setFont(font)
-        self._tablo.setItem(satir, COL_AD, item_lbl)
-
-        for col, val in [(COL_MG, toplam_mg), (COL_KG, toplam_kg)]:
-            txt = _format_sayi(val, 3) if val else ""
-            item = QTableWidgetItem(txt)
-            item.setFlags(Qt.ItemFlag.NoItemFlags)
-            item.setBackground(QBrush(QColor(RENK_BG_IKINCIL)))
-            item.setForeground(QBrush(QColor(RENK_YAZI_IKINCIL)))
-            item.setFont(font)
-            item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            self._tablo.setItem(satir, col, item)
-
-    def _genel_toplam_yaz(self, satir: int):
-        self._tablo.setRowHeight(satir, 30)
-
-        tum_satirlar = [s for g in self._gruplar for s in self._veri[g]]
-        toplam_mg = sum(_float_veya_sifir(s.mg_tb) for s in tum_satirlar)
-        toplam_kg = sum(_float_veya_sifir(s.kg_seri) for s in tum_satirlar)
-
-        renk = QColor("#F0F8EC")
-        font = QFont(FONT_AILESI, 11)
-        font.setBold(True)
-
-        for col in range(N_COLS):
-            item = QTableWidgetItem()
-            item.setFlags(Qt.ItemFlag.NoItemFlags)
-            item.setBackground(QBrush(renk))
-            self._tablo.setItem(satir, col, item)
-
-        item_lbl = QTableWidgetItem("  Toplam Ağırlık")
-        item_lbl.setFlags(Qt.ItemFlag.NoItemFlags)
-        item_lbl.setBackground(QBrush(renk))
-        item_lbl.setForeground(QBrush(QColor(RENK_YESIL)))
-        item_lbl.setFont(font)
-        self._tablo.setItem(satir, COL_AD, item_lbl)
-
-        for col, val in [(COL_MG, toplam_mg), (COL_KG, toplam_kg)]:
-            txt = _format_sayi(val, 3) if val else "—"
-            item = QTableWidgetItem(txt)
-            item.setFlags(Qt.ItemFlag.NoItemFlags)
-            item.setBackground(QBrush(renk))
-            item.setForeground(QBrush(QColor(RENK_YESIL)))
-            item.setFont(font)
-            item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            self._tablo.setItem(satir, col, item)
-
-        # Durum etiketi
-        if toplam_mg > 0:
-            self.lbl_toplam.setText(f"Toplam: {_format_sayi(toplam_mg, 3)} mg/tb")
-        else:
-            self.lbl_toplam.setText("Toplam: — mg/tb")
-
-    # ── Hesaplamalar ───────────────────────────────────────────────────────
-
-    def _hesapla_yuzde_kg(self):
-        """Tüm satırlar için % İçerik ve kg/seri otomatik hesaplar."""
+    def _genel_toplam(self, r: int):
+        self._tablo.setRowHeight(r, 30)
         tum = [s for g in self._gruplar for s in self._veri[g]]
-        toplam_mg = sum(_float_veya_sifir(s.mg_tb) for s in tum)
+        t_mg = sum(_float_or_zero(s.mg_tb) for s in tum)
+        t_kg = sum(_float_or_zero(s.kg_seri) for s in tum)
+        renk = QColor("#F0F8EC"); f = QFont(FONT_AILESI, 11); f.setBold(True)
+        for c in range(N_COLS):
+            it = QTableWidgetItem(); it.setFlags(Qt.ItemFlag.NoItemFlags)
+            it.setBackground(QBrush(renk)); self._tablo.setItem(r, c, it)
+        for c, txt in [(COL_AD, "  Toplam Ağırlık"),
+                       (COL_MG, _fmt(t_mg) if t_mg else "—"),
+                       (COL_KG, _fmt(t_kg) if t_kg else "—")]:
+            it = QTableWidgetItem(txt); it.setFlags(Qt.ItemFlag.NoItemFlags)
+            it.setBackground(QBrush(renk))
+            it.setForeground(QBrush(QColor(RENK_YESIL))); it.setFont(f)
+            if c in (COL_MG, COL_KG):
+                it.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            self._tablo.setItem(r, c, it)
+        self.lbl_toplam.setText(f"Toplam: {_fmt(t_mg)} mg" if t_mg else "Toplam: — mg")
 
-        import re
-        seri_boy = 0.0
-        try:
-            # "150.000 ftb", "150000", "150,000 tb" gibi formatları yakala
-            temiz = self._seri_boyutu.strip()
-            # Türkçe binlik ayırıcı nokta ve ondalık virgülü düzelt
-            # Önce sayısal kısmı bul
-            m = re.search(r'[\d.,]+', temiz)
-            if m:
-                sayi_str = m.group()
-                # Eğer son karakter nokta/virgülse ve ondalık değilse binlik ayırıcı
-                # 150.000 → 150000, 150,000 → 150000
-                # Hem nokta hem virgül varsa: karmaşık
-                if '.' in sayi_str and ',' in sayi_str:
-                    # 1.234,56 → Türkçe format
-                    sayi_str = sayi_str.replace('.', '').replace(',', '.')
-                elif '.' in sayi_str:
-                    # 150.000 → binlik mi yoksa ondalık mı?
-                    # 3 hane sonrası nokta → binlik
-                    parcalar = sayi_str.split('.')
-                    if len(parcalar[-1]) == 3:  # binlik ayırıcı
-                        sayi_str = sayi_str.replace('.', '')
-                    # yoksa ondalık olarak bırak
-                elif ',' in sayi_str:
-                    sayi_str = sayi_str.replace(',', '')
-                seri_boy = float(sayi_str)
-        except Exception:
-            seri_boy = 0.0
+    # ── Olay İşleyiciler ──────────────────────────────────────────────────────
 
-        for grup in self._gruplar:
-            for s in self._veri[grup]:
-                mg = _float_veya_sifir(s.mg_tb)
-                if not s.manuel_yuzde:
-                    if toplam_mg > 0 and mg > 0:
-                        s.yuzde = _format_sayi(mg / toplam_mg * 100, 2)
-                    else:
-                        s.yuzde = ""
-                if not s.manuel_kg:
-                    if seri_boy > 0 and mg > 0:
-                        s.kg_seri = _format_sayi(mg * seri_boy / 1_000_000, 3)
-                    else:
-                        s.kg_seri = ""
-
-        # Tabloyu güncelle
-        self._guncelleniyor = True
-        for tablo_satir, (grup, vi) in self._satir_haritasi.items():
-            s = self._veri[grup][vi]
-            item_yuz = self._tablo.item(tablo_satir, COL_YUZ)
-            item_kg  = self._tablo.item(tablo_satir, COL_KG)
-            if item_yuz:
-                item_yuz.setText(s.yuzde)
-                clr = RENK_YAZI_BIRINCIL if s.manuel_yuzde else RENK_YAZI_UCUNCUL
-                item_yuz.setForeground(QBrush(QColor(clr)))
-            if item_kg:
-                item_kg.setText(s.kg_seri)
-                clr = RENK_YAZI_BIRINCIL if s.manuel_kg else RENK_YAZI_UCUNCUL
-                item_kg.setForeground(QBrush(QColor(clr)))
-        self._guncelleniyor = False
-
-        # Toplam ve alt toplamları güncelle
-        self._tablo.blockSignals(True)
-        satir_idx = 0
-        for grup in self._gruplar:
-            satir_idx += 1  # başlık
-            satir_idx += len(self._veri[grup])  # veriler
-            self._alt_toplam_yaz(satir_idx, grup)
-            satir_idx += 1
-        self._genel_toplam_yaz(satir_idx)
-        self._tablo.blockSignals(False)
-
-    def _tablo_key_press(self, event):
-        """Ctrl+V ile Excel/Word'den yapıştırma desteği.
-        Her zaman sütun 0'dan (hammadde adı) başlar.
-        Format: Ad [tab] Fonksiyon [tab] mg/tb [tab] % İçerik [tab] kg/seri
-        """
-        if event.matches(QKeySequence.StandardKey.Paste):
-            clipboard = QApplication.clipboard()
-            metin = clipboard.text()
-            if not metin:
-                return
-
-            # Satırları ayır
-            ham_satirlar = metin.strip().split('\n')
-            if not ham_satirlar:
-                return
-
-            # Hedef grubu belirle
-            secili_satir = self._tablo.currentRow()
-            if secili_satir in self._satir_haritasi:
-                hedef_grup, _ = self._satir_haritasi[secili_satir]
-            else:
-                hedef_grup = self._gruplar[0]
-
-            eklenen = 0
-            for satir_metin in ham_satirlar:
-                satir_metin = satir_metin.strip()
-                if not satir_metin:
-                    continue
-                # Tab ile ayır — Excel/Word kopyasında tab kullanır
-                kolonlar = satir_metin.split('\t')
-                # Her kolon için virgül → nokta dönüşümü
-                kolonlar = [k.strip() for k in kolonlar]
-
-                # En az isim olmalı
-                if not kolonlar[0]:
-                    continue
-
-                s = FormulSatiri(grup=hedef_grup)
-                s.ad = kolonlar[0]
-                if len(kolonlar) >= 2 and kolonlar[1]:
-                    s.fonksiyon = kolonlar[1]
-                if len(kolonlar) >= 3 and kolonlar[2]:
-                    s.mg_tb = kolonlar[2].replace(',', '.')
-                if len(kolonlar) >= 4 and kolonlar[3]:
-                    s.yuzde = kolonlar[3].replace(',', '.')
-                    s.manuel_yuzde = True
-                if len(kolonlar) >= 5 and kolonlar[4]:
-                    s.kg_seri = kolonlar[4].replace(',', '.')
-                    s.manuel_kg = True
-
-                self._veri[hedef_grup].append(s)
-                eklenen += 1
-
-            if eklenen > 0:
-                self._tabloyu_yenile()
-                self.degisti.emit()
-        else:
-            QTableWidget.keyPressEvent(self._tablo, event)
-
-    # ── Olay İşleyiciler ───────────────────────────────────────────────────
-
-    def _hucre_degisti(self, satir: int, sutun: int):
-        if self._guncelleniyor:
+    def _hucre_degisti(self, r: int, c: int):
+        if self._yukleniyor:
             return
-        if satir not in self._satir_haritasi:
+        # Sil sütununa tıklandı mı?
+        if c == COL_SIL and r in self._satir_haritasi:
+            grup, vi = self._satir_haritasi[r]
+            self._satir_sil(grup, vi)
             return
-
-        grup, vi = self._satir_haritasi[satir]
+        if r not in self._satir_haritasi:
+            return
+        grup, vi = self._satir_haritasi[r]
         s = self._veri[grup][vi]
-        item = self._tablo.item(satir, sutun)
+        item = self._tablo.item(r, c)
         if not item:
             return
         metin = item.text().strip()
-
-        if sutun == COL_AD:
+        if c == COL_AD:
             s.ad = metin
-        elif sutun == COL_MG:
+        elif c == COL_FONK:
+            s.fonksiyon = metin
+        elif c == COL_MG:
             s.mg_tb = metin
             s.manuel_yuzde = False
             s.manuel_kg = False
-            self._hesapla_yuzde_kg()
-        elif sutun == COL_YUZ:
+            self._hesapla()
+        elif c == COL_YUZ:
             s.yuzde = metin
             s.manuel_yuzde = bool(metin)
-        elif sutun == COL_KG:
+        elif c == COL_KG:
             s.kg_seri = metin
             s.manuel_kg = bool(metin)
-
         self.degisti.emit()
 
-    def _fonk_degisti(self, grup: str, vi: int, metin: str):
-        if self._guncelleniyor:
-            return
-        if vi < len(self._veri[grup]):
-            self._veri[grup][vi].fonksiyon = metin
-            self.degisti.emit()
+    def mousePressEvent(self, event):
+        """Sil sütununa tıklanınca satırı sil."""
+        idx = self._tablo.indexAt(
+            self._tablo.viewport().mapFrom(self, event.pos()))
+        if idx.isValid() and idx.column() == COL_SIL:
+            r = idx.row()
+            if r in self._satir_haritasi:
+                grup, vi = self._satir_haritasi[r]
+                self._satir_sil(grup, vi)
+                return
+        super().mousePressEvent(event)
 
     def _satir_sil(self, grup: str, vi: int):
         if vi < len(self._veri[grup]):
             self._veri[grup].pop(vi)
-            self._tabloyu_yenile()
+            self._yenile()
             self.degisti.emit()
 
+    # ── Hesaplamalar ──────────────────────────────────────────────────────────
 
-# ─── Kapsanan Ürünler (Tablo 2) ───────────────────────────────────────────────
+    def _hesapla(self):
+        tum = [s for g in self._gruplar for s in self._veri[g]]
+        t_mg = sum(_float_or_zero(s.mg_tb) for s in tum)
+        seri_boy = _parse_seri(self._seri_boyutu)
+
+        for g in self._gruplar:
+            for s in self._veri[g]:
+                mg = _float_or_zero(s.mg_tb)
+                if not s.manuel_yuzde:
+                    s.yuzde = _fmt(mg / t_mg * 100, 2) if t_mg > 0 and mg > 0 else ""
+                if not s.manuel_kg:
+                    s.kg_seri = _fmt(mg * seri_boy / 1_000_000, 3) if seri_boy > 0 and mg > 0 else ""
+
+        self._yukleniyor = True
+        for tablo_r, (grup, vi) in self._satir_haritasi.items():
+            s = self._veri[grup][vi]
+            for c, val, manuel in [(COL_YUZ, s.yuzde, s.manuel_yuzde),
+                                    (COL_KG,  s.kg_seri, s.manuel_kg)]:
+                it = self._tablo.item(tablo_r, c)
+                if it:
+                    it.setText(val)
+                    it.setForeground(QBrush(QColor(
+                        RENK_YAZI_BIRINCIL if manuel else RENK_YAZI_UCUNCUL)))
+        self._yukleniyor = False
+        # Alt toplamları güncelle
+        self._tablo.blockSignals(True)
+        r = 0
+        for g in self._gruplar:
+            r += 1
+            r += len(self._veri[g])
+            self._alt_toplam(r, g); r += 1
+        self._genel_toplam(r)
+        self._tablo.blockSignals(False)
+
+
+# ─── Kapsanan Ürünler ─────────────────────────────────────────────────────────
 
 class KapsananUrunlerWidget(QWidget):
-    """Tablo 2 — seri bilgileri, proje verilerinden otomatik gelir."""
-
     degisti = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(10)
-
+        l = QVBoxLayout(self); l.setContentsMargins(12,12,12,12); l.setSpacing(10)
         aciklama = QLabel(
-            "Bu tablo proje oluştururken girdiğiniz seri bilgilerinden otomatik doldurulur. "
-            "Değiştirmek için Proje Özeti sayfasını kullanın."
-        )
+            "Bu tablo proje oluştururken girilen seri bilgilerinden otomatik doldurulur.")
         aciklama.setWordWrap(True)
         aciklama.setStyleSheet(f"""
-            font-size: 11px;
-            color: {RENK_YAZI_IKINCIL};
-            background: {RENK_BG_IKINCIL};
-            border: 1px solid {RENK_KENARLIK};
-            border-radius: 6px;
-            padding: 8px 12px;
+            font-size:11px;color:{RENK_YAZI_IKINCIL};
+            background:{RENK_BG_IKINCIL};border:1px solid {RENK_KENARLIK};
+            border-radius:6px;padding:8px 12px;
         """)
-        layout.addWidget(aciklama)
-
+        l.addWidget(aciklama)
         self._tablo = QTableWidget(3, 4)
         self._tablo.setHorizontalHeaderLabels(
-            ["Ürün Adı", "Seri No", "Seri Boyutu", "Ürün Formu"]
-        )
-        self._tablo.horizontalHeader().setSectionResizeMode(
-            QHeaderView.ResizeMode.Stretch
-        )
+            ["Ürün Adı","Seri No","Seri Boyutu","Ürün Formu"])
+        self._tablo.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self._tablo.verticalHeader().setVisible(False)
         self._tablo.setStyleSheet(f"""
-            QTableWidget {{
-                border: 1px solid {RENK_KENARLIK};
-                border-radius: 6px;
-                font-size: 11px;
-                font-family: {FONT_AILESI};
-                gridline-color: {RENK_KENARLIK};
-            }}
-            QHeaderView::section {{
-                background: {RENK_BG_IKINCIL};
-                border: none;
-                border-right: 1px solid {RENK_KENARLIK};
-                border-bottom: 1px solid {RENK_KENARLIK};
-                padding: 5px 8px;
-                font-size: 10px;
-                font-weight: bold;
-                color: {RENK_YAZI_IKINCIL};
-            }}
+            QTableWidget{{border:1px solid {RENK_KENARLIK};border-radius:6px;
+            font-size:11px;font-family:{FONT_AILESI};gridline-color:{RENK_KENARLIK};}}
+            QHeaderView::section{{background:{RENK_BG_IKINCIL};border:none;
+            border-right:1px solid {RENK_KENARLIK};
+            border-bottom:1px solid {RENK_KENARLIK};
+            padding:5px 8px;font-size:10px;font-weight:bold;color:{RENK_YAZI_IKINCIL};}}
         """)
-        layout.addWidget(self._tablo)
-        layout.addStretch()
+        l.addWidget(self._tablo); l.addStretch()
 
     def yukle(self, proje: ProjeVerisi):
         seriler = [proje.seri_1_no, proje.seri_2_no, proje.seri_3_no]
         for i in range(3):
-            for col, txt in enumerate([
-                proje.urun_adi,
-                seriler[i],
-                proje.seri_boyutu,
-                proje.urun_formu,
-            ]):
-                item = QTableWidgetItem(txt)
-                item.setFlags(Qt.ItemFlag.ItemIsEnabled)
-                item.setForeground(QBrush(QColor(RENK_YAZI_BIRINCIL)))
-                self._tablo.setItem(i, col, item)
+            for j, txt in enumerate([proje.urun_adi, seriler[i],
+                                      proje.seri_boyutu, proje.urun_formu]):
+                it = QTableWidgetItem(txt)
+                it.setFlags(Qt.ItemFlag.ItemIsEnabled)
+                self._tablo.setItem(i, j, it)
 
 
-# ─── Ana Widget ──────────────────────────────────────────────────────────────
+# ─── Ana Widget ───────────────────────────────────────────────────────────────
 
 class BirimFormulWidget(QWidget):
-    """
-    Modül 3 ana widget.
-    Üst sekmeler: Tablo 1 | Tablo 2
-    Tablo 1 içinde: Formül tablosu + not paneli (PVP / PVR sekmeli)
-    """
-
     kaydedildi = pyqtSignal()
     degisti = pyqtSignal()
 
     def __init__(self, proje: ProjeVerisi, parent=None):
         super().__init__(parent)
         self._proje = proje
-        self._degisiklik_var = False
         self._setup_ui()
         self._yukle()
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
+        layout.setContentsMargins(0,0,0,0); layout.setSpacing(0)
 
         # Toolbar
-        toolbar = QFrame()
-        toolbar.setStyleSheet(f"""
-            background: {RENK_BG_BIRINCIL};
-            border-bottom: 1px solid {RENK_KENARLIK};
-        """)
-        toolbar.setFixedHeight(46)
-        tb = QHBoxLayout(toolbar)
-        tb.setContentsMargins(16, 0, 16, 0)
-        tb.setSpacing(8)
-
+        tb_frame = QFrame()
+        tb_frame.setStyleSheet(
+            f"background:{RENK_BG_BIRINCIL};border-bottom:1px solid {RENK_KENARLIK};")
+        tb_frame.setFixedHeight(46)
+        tb = QHBoxLayout(tb_frame); tb.setContentsMargins(16,0,16,0); tb.setSpacing(8)
         lbl = QLabel("Birim Formül ve Ürün Bilgileri")
-        lbl.setStyleSheet(f"font-size: 13px; font-weight: bold; color: {RENK_YAZI_BIRINCIL};")
-        tb.addWidget(lbl)
-        tb.addStretch()
+        lbl.setStyleSheet(f"font-size:13px;font-weight:bold;color:{RENK_YAZI_BIRINCIL};")
+        tb.addWidget(lbl); tb.addStretch()
 
-        self.lbl_durum = QLabel("")
-        self.lbl_durum.setVisible(False)
+        self.lbl_durum = QLabel(""); self.lbl_durum.setVisible(False)
         self.lbl_durum.setStyleSheet(f"""
-            font-size: 11px;
-            color: {RENK_PRIMARY_KOYU};
-            background: {RENK_PRIMARY_ACIK};
-            border-radius: 4px;
-            padding: 2px 8px;
+            font-size:11px;color:{RENK_PRIMARY_KOYU};
+            background:{RENK_PRIMARY_ACIK};border-radius:4px;padding:2px 8px;
         """)
         tb.addWidget(self.lbl_durum)
 
         btn_kaydet = QPushButton("💾  Kaydet")
-        btn_kaydet.setFixedHeight(30)
-        btn_kaydet.setMinimumWidth(90)
+        btn_kaydet.setFixedHeight(30); btn_kaydet.setMinimumWidth(90)
         btn_kaydet.setStyleSheet(f"""
-            QPushButton {{
-                background: {RENK_PRIMARY};
-                color: #FFFFFF;
-                border: none;
-                border-radius: 6px;
-                font-size: 12px;
-                font-weight: bold;
-                font-family: {FONT_AILESI};
-                padding: 0 14px;
-            }}
-            QPushButton:hover {{ background: {RENK_PRIMARY_KOYU}; }}
+            QPushButton{{background:{RENK_PRIMARY};color:#FFFFFF;border:none;
+            border-radius:6px;font-size:12px;font-weight:bold;
+            font-family:{FONT_AILESI};padding:0 14px;}}
+            QPushButton:hover{{background:{RENK_PRIMARY_KOYU};}}
         """)
-        btn_kaydet.clicked.connect(self._kaydet)
-        tb.addWidget(btn_kaydet)
-        layout.addWidget(toolbar)
+        btn_kaydet.clicked.connect(self._kaydet); tb.addWidget(btn_kaydet)
+        layout.addWidget(tb_frame)
 
         # Ana sekmeler
         self.tabs = QTabWidget()
         self.tabs.setStyleSheet(f"""
-            QTabWidget::pane {{
-                border: none;
-                background: {RENK_BG_BIRINCIL};
-            }}
-            QTabBar::tab {{
-                border: 1px solid {RENK_KENARLIK};
-                border-bottom: none;
-                border-radius: 6px 6px 0 0;
-                padding: 6px 16px;
-                font-size: 11px;
-                color: {RENK_YAZI_IKINCIL};
-                background: {RENK_BG_IKINCIL};
-                margin-right: 2px;
-            }}
-            QTabBar::tab:selected {{
-                background: {RENK_BG_BIRINCIL};
-                color: {RENK_PRIMARY};
-                font-weight: bold;
-            }}
+            QTabWidget::pane{{border:none;background:{RENK_BG_BIRINCIL};}}
+            QTabBar::tab{{border:1px solid {RENK_KENARLIK};border-bottom:none;
+            border-radius:6px 6px 0 0;padding:6px 16px;font-size:11px;
+            color:{RENK_YAZI_IKINCIL};background:{RENK_BG_IKINCIL};margin-right:2px;}}
+            QTabBar::tab:selected{{background:{RENK_BG_BIRINCIL};
+            color:{RENK_PRIMARY};font-weight:bold;}}
         """)
         layout.addWidget(self.tabs, 1)
 
-        # ── Tablo 1 sekmesi ──
-        tablo1_widget = QWidget()
-        t1_layout = QVBoxLayout(tablo1_widget)
-        t1_layout.setContentsMargins(0, 0, 0, 0)
-        t1_layout.setSpacing(0)
+        # Tablo 1
+        t1 = QWidget()
+        t1l = QVBoxLayout(t1); t1l.setContentsMargins(0,0,0,0); t1l.setSpacing(0)
 
-        # Formül tablosu (üst %65)
         self.formul_tablosu = BirimFormulTablosu(
-            self._proje.urun_formu,
-            self._proje.seri_boyutu,
-        )
+            self._proje.urun_formu, self._proje.seri_boyutu)
         self.formul_tablosu.degisti.connect(self._on_degisti)
-        t1_layout.addWidget(self.formul_tablosu, 65)
+        t1l.addWidget(self.formul_tablosu, 65)
 
-        # Notlar bölümü (alt %35)
+        # Notlar bölümü
         notlar_frame = QFrame()
-        notlar_frame.setStyleSheet(f"""
-            border-top: 2px solid {RENK_KENARLIK};
-            background: {RENK_BG_BIRINCIL};
-        """)
-        notlar_layout = QVBoxLayout(notlar_frame)
-        notlar_layout.setContentsMargins(0, 0, 0, 0)
-        notlar_layout.setSpacing(0)
+        notlar_frame.setStyleSheet(
+            f"border-top:2px solid {RENK_KENARLIK};background:{RENK_BG_BIRINCIL};")
+        nfl = QVBoxLayout(notlar_frame); nfl.setContentsMargins(0,0,0,0); nfl.setSpacing(0)
 
-        # Not başlık
-        not_baslik = QFrame()
-        not_baslik.setStyleSheet(f"""
-            background: {RENK_BG_IKINCIL};
-            border-bottom: 1px solid {RENK_KENARLIK};
-        """)
-        not_baslik.setFixedHeight(36)
-        nb_layout = QHBoxLayout(not_baslik)
-        nb_layout.setContentsMargins(14, 0, 14, 0)
-        nb_lbl = QLabel("Tablo Altı Notlar")
-        nb_lbl.setStyleSheet(f"font-size: 12px; font-weight: bold; color: {RENK_YAZI_BIRINCIL};")
-        nb_layout.addWidget(nb_lbl)
-        nb_layout.addStretch()
+        not_hdr = QFrame()
+        not_hdr.setStyleSheet(
+            f"background:{RENK_BG_IKINCIL};border-bottom:1px solid {RENK_KENARLIK};")
+        not_hdr.setFixedHeight(36)
+        nhl = QHBoxLayout(not_hdr); nhl.setContentsMargins(14,0,14,0)
+        nhl.addWidget(QLabel("Tablo Altı Notlar").setStyleSheet if False else
+                      QLabel("Tablo Altı Notlar"))
+        nhl.addStretch()
 
-        # PVP / PVR sekmeleri
         self.not_tabs = QTabWidget()
         self.not_tabs.setStyleSheet(f"""
-            QTabWidget::pane {{
-                border: none;
-                background: {RENK_BG_BIRINCIL};
-            }}
-            QTabBar::tab {{
-                border: 1px solid {RENK_KENARLIK};
-                border-bottom: none;
-                border-radius: 4px 4px 0 0;
-                padding: 4px 12px;
-                font-size: 11px;
-                color: {RENK_YAZI_IKINCIL};
-                background: {RENK_BG_IKINCIL};
-                margin-right: 2px;
-            }}
-            QTabBar::tab:selected {{
-                background: {RENK_BG_BIRINCIL};
-                color: {RENK_PRIMARY};
-                font-weight: bold;
-            }}
+            QTabWidget::pane{{border:none;background:{RENK_BG_BIRINCIL};}}
+            QTabBar::tab{{border:1px solid {RENK_KENARLIK};border-bottom:none;
+            border-radius:4px 4px 0 0;padding:4px 12px;font-size:11px;
+            color:{RENK_YAZI_IKINCIL};background:{RENK_BG_IKINCIL};margin-right:2px;}}
+            QTabBar::tab:selected{{background:{RENK_BG_BIRINCIL};
+            color:{RENK_PRIMARY};font-weight:bold;}}
         """)
-        nb_layout.addWidget(self.not_tabs)
-        notlar_layout.addWidget(not_baslik)
+        nhl.addWidget(self.not_tabs)
+        nfl.addWidget(not_hdr)
 
-        # PVP notları scroll
-        pvp_scroll = QScrollArea()
-        pvp_scroll.setWidgetResizable(True)
-        pvp_scroll.setFrameShape(QFrame.Shape.NoFrame)
-        self.pvp_notlari = NotPaneli()
-        self.pvp_notlari.degisti.connect(self._on_degisti)
-        pvp_scroll.setWidget(self.pvp_notlari)
-        self.not_tabs.addTab(pvp_scroll, "PVP")
+        for attr, sekme_adi in [("pvp_notlari","PVP"), ("pvr_notlari","PVR")]:
+            scroll = QScrollArea(); scroll.setWidgetResizable(True)
+            scroll.setFrameShape(QFrame.Shape.NoFrame)
+            panel = NotPaneli(); panel.degisti.connect(self._on_degisti)
+            setattr(self, attr, panel)
+            scroll.setWidget(panel)
+            self.not_tabs.addTab(scroll, sekme_adi)
 
-        # PVR notları scroll
-        pvr_scroll = QScrollArea()
-        pvr_scroll.setWidgetResizable(True)
-        pvr_scroll.setFrameShape(QFrame.Shape.NoFrame)
-        self.pvr_notlari = NotPaneli()
-        self.pvr_notlari.degisti.connect(self._on_degisti)
-        pvr_scroll.setWidget(self.pvr_notlari)
-        self.not_tabs.addTab(pvr_scroll, "PVR")
+        nfl.addWidget(self.not_tabs, 1)
+        t1l.addWidget(notlar_frame, 35)
+        self.tabs.addTab(t1, "Tablo 1 — Birim Formül")
 
-        notlar_layout.addWidget(self.not_tabs, 1)
-        t1_layout.addWidget(notlar_frame, 35)
-
-        self.tabs.addTab(tablo1_widget, "Tablo 1 — Birim Formül")
-
-        # ── Tablo 2 sekmesi ──
+        # Tablo 2
         self.kapsanan = KapsananUrunlerWidget()
         self.tabs.addTab(self.kapsanan, "Tablo 2 — Kapsanan Ürünler")
 
     def _yukle(self):
-        """Proje verisini arayüze yükler."""
-        # Birim formül satırları
         if self._proje.birim_formul_satirlar:
             self.formul_tablosu.yukle(self._proje.birim_formul_satirlar)
-
-        # Notlar
         if self._proje.pvp_notlar:
             self.pvp_notlari.yukle(self._proje.pvp_notlar)
         else:
             self.pvp_notlari.varsayilan_yukle()
-
         if self._proje.pvr_notlar:
             self.pvr_notlari.yukle(self._proje.pvr_notlar)
         else:
             self.pvr_notlari.varsayilan_yukle()
-
-        # Kapsanan ürünler
         self.kapsanan.yukle(self._proje)
-
-        self._degisiklik_var = False
         self.lbl_durum.setVisible(False)
 
     def _on_degisti(self):
-        self._degisiklik_var = True
         self.lbl_durum.setText("● Kaydedilmemiş değişiklik")
         self.lbl_durum.setStyleSheet(f"""
-            font-size: 11px;
-            color: {RENK_PRIMARY_KOYU};
-            background: {RENK_PRIMARY_ACIK};
-            border-radius: 4px;
-            padding: 2px 8px;
+            font-size:11px;color:{RENK_PRIMARY_KOYU};
+            background:{RENK_PRIMARY_ACIK};border-radius:4px;padding:2px 8px;
         """)
         self.lbl_durum.setVisible(True)
         self.degisti.emit()
@@ -1167,15 +776,10 @@ class BirimFormulWidget(QWidget):
         self._proje.birim_formul_satirlar = self.formul_tablosu.to_list()
         self._proje.pvp_notlar = self.pvp_notlari.to_list()
         self._proje.pvr_notlar = self.pvr_notlari.to_list()
-
-        self._degisiklik_var = False
         self.lbl_durum.setText("✓ Kaydedildi")
         self.lbl_durum.setStyleSheet(f"""
-            font-size: 11px;
-            color: {RENK_YESIL};
-            background: {RENK_YESIL_BG};
-            border-radius: 4px;
-            padding: 2px 8px;
+            font-size:11px;color:{RENK_YESIL};
+            background:{RENK_YESIL_BG};border-radius:4px;padding:2px 8px;
         """)
         self.lbl_durum.setVisible(True)
         self.kaydedildi.emit()
@@ -1184,5 +788,4 @@ class BirimFormulWidget(QWidget):
         self._proje = proje
         self._yukle()
 
-    def degisiklik_var_mi(self) -> bool:
-        return self._degisiklik_var
+    def degisiklik_var_mi(self): return False
