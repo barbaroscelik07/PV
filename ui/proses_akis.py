@@ -24,7 +24,7 @@ from PyQt6.QtWidgets import (
     QFrame, QLabel, QLineEdit, QPushButton, QTextEdit,
     QScrollArea, QAbstractItemView, QTableWidget,
     QTableWidgetItem, QHeaderView, QComboBox,
-    QSizePolicy, QApplication, QMessageBox
+    QSizePolicy, QApplication, QMessageBox, QTabWidget
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QPoint, QPointF, QRectF, QSizeF
 from PyQt6.QtGui import (
