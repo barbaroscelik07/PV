@@ -339,7 +339,7 @@ class ImpuriteSatiri(QFrame):
         l.addWidget(lbl_yuzde)
         # Sil butonu — % işaretinin hemen yanında
         btn = QPushButton("✕")
-        btn.setFixedSize(22, 22)
+        btn.setFixedSize(26, 24)
         btn.setToolTip("Bu impüriteyi sil")
         btn.setStyleSheet("""
             QPushButton {
@@ -347,8 +347,9 @@ class ImpuriteSatiri(QFrame):
                 color: #C0392B;
                 border: 1px solid #F1948A;
                 border-radius: 3px;
-                font-size: 12px;
+                font-size: 13px;
                 font-weight: bold;
+                padding: 0px;
             }
             QPushButton:hover {
                 background-color: #F1948A;
@@ -357,7 +358,7 @@ class ImpuriteSatiri(QFrame):
         """)
         btn.clicked.connect(lambda: self.silindi.emit(self))
         l.addWidget(btn)
-        l.addStretch(1)  # stretch sonda — buton % yanında kalır
+        l.addStretch(1)
         self.input_ad.textChanged.connect(self.degisti)
         self.input_deger.textChanged.connect(self.degisti)
 
@@ -397,7 +398,7 @@ class DissolusyonWidget(QWidget):
 class MikrobiyolojikPanel(QFrame):
     degisti = pyqtSignal()
 
-    def __init__(self, sb_goster: bool = False, parent=None):
+    def __init__(self, sb_goster: bool = False, yildiz_varsayilan: bool = False, parent=None):
         super().__init__(parent)
         self.setStyleSheet("background:transparent;")
         l = QHBoxLayout(self); l.setContentsMargins(6,4,8,4); l.setSpacing(4)
@@ -406,6 +407,7 @@ class MikrobiyolojikPanel(QFrame):
         self.cb_yildiz = QCheckBox()
         self.cb_yildiz.setToolTip("* = Sadece validasyonda")
         self.cb_yildiz.setStyleSheet(_cb_stil()); self.cb_yildiz.setFixedWidth(22)
+        self.cb_yildiz.setChecked(yildiz_varsayilan)
         self.cb_yildiz.stateChanged.connect(self.degisti)
         l.addWidget(self.cb_yildiz)
 
@@ -697,11 +699,13 @@ class FizikselTestlerWidget(QWidget):
 class CekirdekTabletSekmesi(QScrollArea):
     degisti = pyqtSignal()
 
-    def __init__(self, proje: ProjeVerisi, sb_goster: bool = False, parent=None):
+    def __init__(self, proje: ProjeVerisi, sb_goster: bool = False,
+                 urun_formu: str = "", parent=None):
         super().__init__(parent)
         self.setWidgetResizable(True); self.setFrameShape(QFrame.Shape.NoFrame)
         self._proje = proje
         self._sb_goster = sb_goster
+        self._urun_formu = urun_formu
         self._em_paneller: list[EtkenAnalitikPanel] = []
 
         w = QWidget(); self._layout = QVBoxLayout(w)
@@ -712,8 +716,15 @@ class CekirdekTabletSekmesi(QScrollArea):
         self.fiziksel.degisti.connect(self.degisti)
         self._layout.addWidget(self.fiziksel)
 
+        # Mikrobiyolojik: Film Tablet ve Tablet formunda * işaretli
+        mikro_yildiz = urun_formu in [
+            UrunFormu.FILM_TABLET.value,
+            UrunFormu.TABLET.value,
+            UrunFormu.KAPSUL_FILM_TABLET.value,
+        ]
         self._layout.addWidget(_sek_baslik("Mikrobiyolojik Kontrol"))
-        self.mikro = MikrobiyolojikPanel(sb_goster=sb_goster)
+        self.mikro = MikrobiyolojikPanel(sb_goster=sb_goster,
+                                         yildiz_varsayilan=mikro_yildiz)
         self.mikro.degisti.connect(self.degisti)
         self._layout.addWidget(self.mikro)
 
@@ -728,14 +739,21 @@ class CekirdekTabletSekmesi(QScrollArea):
     def _em_panelleri_olustur(self):
         for p in self._em_paneller: p.deleteLater()
         self._em_paneller.clear()
+        # İlgili Bileşikler * kuralı:
+        # Film Tablet → Çekirdek'te İlgili Bileşikler * işaretli
+        # Tablet → Çekirdek'te İlgili Bileşikler * işaretsiz
+        imp_yildiz = self._urun_formu in [
+            UrunFormu.FILM_TABLET.value,
+            UrunFormu.KAPSUL_FILM_TABLET.value,
+        ]
         for em in self._proje.etken_maddeler:
             self._em_layout.addWidget(
                 _sek_baslik(f"{em.ad} — Analitik Testler"))
-            # SB olan sekmede (tablet→çekirdek) imp_yildiz varsayılan False
             panel = EtkenAnalitikPanel(
                 em.ad, dissolusyon_goster=True, kt_goster=False,
                 sb_goster=self._sb_goster,
-                imp_yildiz_varsayilan=not self._sb_goster)
+                imp_yildiz_varsayilan=imp_yildiz,
+                yildiz_varsayilan=False)
             panel.degisti.connect(self.degisti)
             self._em_paneller.append(panel)
             self._em_layout.addWidget(panel)
@@ -820,7 +838,9 @@ class FilmTabletSekmesi(QScrollArea):
         self._layout.addWidget(self.lbl_uyari)
 
         self._layout.addWidget(_sek_baslik("Mikrobiyolojik Kontrol"))
-        self.mikro = MikrobiyolojikPanel(sb_goster=sb_goster)
+        # Film Tablet sekmesinde mikrobiyolojik her zaman * işaretli
+        self.mikro = MikrobiyolojikPanel(sb_goster=sb_goster,
+                                         yildiz_varsayilan=True)
         self.mikro.degisti.connect(self.degisti)
         self._layout.addWidget(self.mikro)
 
@@ -838,11 +858,12 @@ class FilmTabletSekmesi(QScrollArea):
         for em in self._proje.etken_maddeler:
             self._em_layout.addWidget(
                 _sek_baslik(f"{em.ad} — Analitik Testler"))
-            # Film Tablet SB sekmesinde imp_yildiz varsayılan False
+            # Film Tablet sekmesinde İlgili Bileşikler * işaretsiz
             panel = EtkenAnalitikPanel(
                 em.ad, dissolusyon_goster=True, kt_goster=False,
                 sb_goster=self._sb_goster,
-                imp_yildiz_varsayilan=not self._sb_goster)
+                imp_yildiz_varsayilan=False,
+                yildiz_varsayilan=False)
             panel.degisti.connect(self.degisti)
             self._em_paneller.append(panel)
             self._em_layout.addWidget(panel)
@@ -1094,7 +1115,8 @@ class SpecKartiWidget(QWidget):
         # ── ÇEKİRDEK TABLET ──
         if urun != UrunFormu.KAPSUL.value:
             sb = urun in tablet_formlar
-            self._sekme_cekirdek = CekirdekTabletSekmesi(self._proje, sb_goster=sb)
+            self._sekme_cekirdek = CekirdekTabletSekmesi(
+                self._proje, sb_goster=sb, urun_formu=urun)
             self._sekme_cekirdek.degisti.connect(self._on_degisti)
             self._sekme_cekirdek.from_model(
                 self._proje.cekirdek_spek, self._proje.etken_analitik_spekler)
