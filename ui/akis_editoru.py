@@ -1,7 +1,7 @@
 """
 PV-DOC — Proses Akış Şeması Editörü
 Sadece Dikdörtgen + Düz Ok + L-Ok
-4 sütun kılavuzlu serbest canvas, sınırsız yükseklik
+4 sütun kılavuzlu serbest canvas, A4 sayfa görünümü, sınırsız yükseklik
 """
 
 import math
@@ -9,10 +9,10 @@ import uuid
 from PyQt6.QtWidgets import (
     QDialog, QWidget, QVBoxLayout, QHBoxLayout, QFrame, QLabel,
     QPushButton, QGraphicsView, QGraphicsScene, QGraphicsItem,
-    QGraphicsRectItem, QGraphicsPathItem, QGraphicsLineItem,
-    QToolButton, QButtonGroup, QComboBox, QFontComboBox, QSpinBox,
-    QTextEdit, QInputDialog, QApplication, QMessageBox,
-    QFileDialog, QScrollArea, QSizePolicy
+    QGraphicsRectItem, QGraphicsSimpleTextItem, QGraphicsLineItem,
+    QGraphicsPathItem, QToolButton, QButtonGroup, QComboBox,
+    QFontComboBox, QSpinBox, QTextEdit, QInputDialog, QApplication,
+    QMessageBox, QFileDialog, QScrollArea, QSizePolicy
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QPointF, QRectF, QTimer
 from PyQt6.QtGui import (
@@ -27,8 +27,11 @@ from ui.stiller import (
 )
 
 # ─── Sabitler ─────────────────────────────────────────────────────────────────
-CANVAS_W      = 1400
-CANVAS_H_BASL = 2000   # Başlangıç yüksekliği — şekil dışarı çıkınca büyür
+CANVAS_W    = 1400
+A4_W        = 1400          # canvas genişliği = A4 genişliği
+A4_H        = 1980          # A4 yüksekliği 96dpi'da (297mm)
+BASLIK_H    = 30            # sütun başlık alanı yüksekliği
+
 SUTUN_ORANLARI = [0.0, 0.22, 0.50, 0.72, 1.0]
 SUTUN_ADLARI   = [
     "Başlangıç Maddeleri",
@@ -36,6 +39,7 @@ SUTUN_ADLARI   = [
     "IPK Testleri",
     "Rutin / Val. Testleri",
 ]
+
 MOD_SEC  = "sec"
 MOD_DKRT = "dikdortgen"
 MOD_OK   = "ok"
@@ -54,24 +58,24 @@ KENAR_STILLERI = {
     "Kesik": Qt.PenStyle.DashLine,
     "Nokta": Qt.PenStyle.DotLine,
 }
-TUT = 8   # tutamaç boyutu px
+TUT = 8
 
 
 # ─── Veri ─────────────────────────────────────────────────────────────────────
 class SekliVeri:
-    def __init__(self, metin="", x=100.0, y=100.0, w=160.0, h=52.0,
+    def __init__(self, metin="", x=100.0, y=50.0, w=160.0, h=52.0,
                  kenar_renk="#1A1A1A", kenar_stil="Düz",
                  yazi_boyut=11, yatay="orta", dikey="orta",
                  font_ailesi="", sid=None):
-        self.id         = sid or str(uuid.uuid4())[:8]
-        self.metin      = metin
+        self.id          = sid or str(uuid.uuid4())[:8]
+        self.metin       = metin
         self.x = x;  self.y = y
         self.w = w;  self.h = h
-        self.kenar_renk = kenar_renk
-        self.kenar_stil = kenar_stil
-        self.yazi_boyut = yazi_boyut
-        self.yatay = yatay
-        self.dikey = dikey
+        self.kenar_renk  = kenar_renk
+        self.kenar_stil  = kenar_stil
+        self.yazi_boyut  = yazi_boyut
+        self.yatay       = yatay
+        self.dikey       = dikey
         self.font_ailesi = font_ailesi or FONT_AILESI
 
     def to_dict(self):  return self.__dict__.copy()
@@ -91,7 +95,7 @@ class OkVeri:
         self.id  = oid or str(uuid.uuid4())[:8]
         self.x1 = x1;  self.y1 = y1
         self.x2 = x2;  self.y2 = y2
-        self.tip = tip   # "ok"=düz dik, "lok"=L-şekil
+        self.tip = tip
 
     def to_dict(self):  return self.__dict__.copy()
 
@@ -139,18 +143,13 @@ class Tutamac(QGraphicsRectItem):
 
 # ─── Şekil Item ───────────────────────────────────────────────────────────────
 class SekliItem(QGraphicsItem):
-    """
-    Taşıma: ItemIsMovable flag'i ile Qt'ye bırakılmıştır.
-    Boyutlandırma: mousePressEvent'te tutamaç tespiti, move'da manuel.
-    İkisi çakışmaması için boyutlandırma başlayınca ItemIsMovable=False yapılır.
-    """
     def __init__(self, veri: SekliVeri, sahne: 'AkisSahne'):
         super().__init__()
         self.veri  = veri
         self.sahne = sahne
-        self._yon       = None     # aktif tutamaç yönü
-        self._yb_bas    = None     # boyutlandırma başlangıç scene pozisyonu
-        self._yb_orig   = None     # (x,y,w,h) orijinal
+        self._yon      = None
+        self._yb_bas   = None
+        self._yb_orig  = None
         self._tutamaclar: dict[str, Tutamac] = {}
 
         self.setPos(veri.x, veri.y)
@@ -160,8 +159,7 @@ class SekliItem(QGraphicsItem):
         self.setCursor(Qt.CursorShape.SizeAllCursor)
 
         for yon in ("tl", "t", "tr", "l", "r", "bl", "b", "br"):
-            t = Tutamac(yon, self)
-            self._tutamaclar[yon] = t
+            self._tutamaclar[yon] = Tutamac(yon, self)
 
     def boundingRect(self):
         return QRectF(0, 0, self.veri.w, self.veri.h)
@@ -179,9 +177,8 @@ class SekliItem(QGraphicsItem):
         painter.setBrush(QBrush(QColor("white")))
         painter.drawRoundedRect(QRectF(0, 0, self.veri.w, self.veri.h), 6, 6)
         painter.setPen(QPen(QColor(self.veri.kenar_renk)))
-        painter.setFont(QFont(
-            getattr(self.veri, 'font_ailesi', FONT_AILESI),
-            self.veri.yazi_boyut))
+        fa = getattr(self.veri, 'font_ailesi', FONT_AILESI) or FONT_AILESI
+        painter.setFont(QFont(fa, self.veri.yazi_boyut))
         yf = {"sol": Qt.AlignmentFlag.AlignLeft,
               "orta": Qt.AlignmentFlag.AlignHCenter,
               "sag":  Qt.AlignmentFlag.AlignRight
@@ -210,11 +207,9 @@ class SekliItem(QGraphicsItem):
         return super().itemChange(change, value)
 
     def _yakin_tutamac(self, scene_pos) -> str | None:
-        """Verilen sahne pozisyonuna yakın tutamaç yönü."""
         if not self.isSelected():
             return None
         for yon, t in self._tutamaclar.items():
-            # Tutacın merkezi sahne koordinatında
             merkez = self.mapToScene(t.pos())
             if (scene_pos - merkez).manhattanLength() < TUT * 2.5 + 6:
                 return yon
@@ -223,10 +218,8 @@ class SekliItem(QGraphicsItem):
     def mousePressEvent(self, event):
         if event.button() != Qt.MouseButton.LeftButton:
             super().mousePressEvent(event); return
-
         yon = self._yakin_tutamac(event.scenePos())
         if yon:
-            # Boyutlandırma başlıyor — taşımayı kapat
             self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
             self._yon     = yon
             self._yb_bas  = event.scenePos()
@@ -234,8 +227,6 @@ class SekliItem(QGraphicsItem):
                              self.veri.w, self.veri.h)
             event.accept()
             return
-
-        # Normal press — taşıma açık
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
         self._yon = None
         super().mousePressEvent(event)
@@ -288,18 +279,18 @@ class SekliItem(QGraphicsItem):
 class OkItem(QGraphicsItem):
     def __init__(self, veri: OkVeri):
         super().__init__()
-        self.veri    = veri
-        self._bas    = None   # taşıma başlangıcı (scene)
-        self._orig   = None   # (x1,y1,x2,y2) orijinal
+        self.veri  = veri
+        self._tas_bas  = None   # taşıma başlangıcı
+        self._tas_orig = None
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
         self.setZValue(-1)
+        self.setAcceptHoverEvents(True)
 
     def _noktalar(self):
         x1, y1, x2, y2 = self.veri.x1, self.veri.y1, self.veri.x2, self.veri.y2
         if self.veri.tip == "lok":
             return [(x1, y1), (x2, y1), (x2, y2)]
-        # Düz dik: büyük eksene git
         if abs(x2 - x1) >= abs(y2 - y1):
             return [(x1, y1), (x2, y1)]
         return [(x1, y1), (x1, y2)]
@@ -311,6 +302,24 @@ class OkItem(QGraphicsItem):
         return QRectF(min(xs) - m, min(ys) - m,
                       max(xs) - min(xs) + m * 2,
                       max(ys) - min(ys) + m * 2)
+
+    def shape(self):
+        """Tıklama alanı — çizginin etrafında geniş bant."""
+        pts = self._noktalar()
+        path = QPainterPath()
+        if len(pts) >= 2:
+            # Her segment için geniş bant
+            for i in range(len(pts) - 1):
+                x1, y1 = pts[i]; x2, y2 = pts[i+1]
+                dx = x2 - x1; dy = y2 - y1
+                u = math.sqrt(dx*dx + dy*dy) or 1
+                nx = -dy/u * 10; ny = dx/u * 10
+                path.moveTo(x1+nx, y1+ny)
+                path.lineTo(x2+nx, y2+ny)
+                path.lineTo(x2-nx, y2-ny)
+                path.lineTo(x1-nx, y1-ny)
+                path.closeSubpath()
+        return path
 
     def paint(self, painter, option, widget=None):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -325,17 +334,16 @@ class OkItem(QGraphicsItem):
             painter.drawLine(
                 QPointF(pts[i][0],   pts[i][1]),
                 QPointF(pts[i+1][0], pts[i+1][1]))
-        # Ok başı
         if len(pts) >= 2:
             ex, ey = pts[-1]; px, py = pts[-2]
             dx = ex - px; dy = ey - py
-            u = math.sqrt(dx * dx + dy * dy)
+            u = math.sqrt(dx*dx + dy*dy)
             if u > 0:
-                ux = dx / u; uy = dy / u
+                ux = dx/u; uy = dy/u
                 p = QPainterPath()
                 p.moveTo(ex, ey)
-                p.lineTo(ex - 12 * ux - 5 * uy, ey - 12 * uy + 5 * ux)
-                p.lineTo(ex - 12 * ux + 5 * uy, ey - 12 * uy - 5 * ux)
+                p.lineTo(ex - 12*ux - 5*uy, ey - 12*uy + 5*ux)
+                p.lineTo(ex - 12*ux + 5*uy, ey - 12*uy - 5*ux)
                 p.closeSubpath()
                 painter.setBrush(QBrush(QColor(renk)))
                 painter.setPen(Qt.PenStyle.NoPen)
@@ -343,17 +351,20 @@ class OkItem(QGraphicsItem):
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
-            self._bas  = event.scenePos()
-            self._orig = (self.veri.x1, self.veri.y1,
-                          self.veri.x2, self.veri.y2)
+            # Önce seçimi Qt'ye bırak
+            super().mousePressEvent(event)
+            # Sonra taşıma state'i kur
+            self._tas_bas  = event.scenePos()
+            self._tas_orig = (self.veri.x1, self.veri.y1,
+                              self.veri.x2, self.veri.y2)
             event.accept()
             return
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
-        if self._bas is not None:
-            d  = event.scenePos() - self._bas
-            ox1, oy1, ox2, oy2 = self._orig
+        if self._tas_bas is not None:
+            d = event.scenePos() - self._tas_bas
+            ox1, oy1, ox2, oy2 = self._tas_orig
             self.veri.x1 = ox1 + d.x(); self.veri.y1 = oy1 + d.y()
             self.veri.x2 = ox2 + d.x(); self.veri.y2 = oy2 + d.y()
             self.prepareGeometryChange()
@@ -363,11 +374,10 @@ class OkItem(QGraphicsItem):
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
-        if self._bas is not None:
-            self._bas = None
+        if self._tas_bas is not None:
+            self._tas_bas = None
             s = self.scene()
-            if s:
-                s.degisti.emit()
+            if s: s.degisti.emit()
             event.accept()
             return
         super().mouseReleaseEvent(event)
@@ -380,12 +390,12 @@ class OkItem(QGraphicsItem):
 # ─── Sahne ────────────────────────────────────────────────────────────────────
 class AkisSahne(QGraphicsScene):
     degisti          = pyqtSignal()
-    sekil_secildi    = pyqtSignal(object)   # SekliVeri | None
-    ok_secildi       = pyqtSignal(object)   # OkVeri | None
+    sekil_secildi    = pyqtSignal(object)
+    ok_secildi       = pyqtSignal(object)
     mod_otomatik_sec = pyqtSignal()
 
     def __init__(self):
-        super().__init__(0, 0, CANVAS_W, CANVAS_H_BASL)
+        super().__init__(0, 0, A4_W, A4_H * 3)  # 3 sayfa başlangıç
         self._mod              = MOD_SEC
         self._sekil_items:  dict[str, SekliItem] = {}
         self._ok_items:     dict[str, OkItem]    = {}
@@ -396,23 +406,69 @@ class AkisSahne(QGraphicsScene):
         self._gecici: QGraphicsLineItem | None   = None
         self._pano_sekiller: list[SekliVeri] = []
         self._pano_oklar:    list[OkVeri]    = []
+        # Sabit başlık item'ları (PNG'de görünsün diye)
+        self._baslik_items: list = []
+        self._baslik_olustur()
         self.selectionChanged.connect(self._secim_degisti)
 
-    # ── Arka plan ─────────────────────────────────────────────────────────────
+    # ── Başlık item'ları (sahneye eklenir → PNG'de görünür) ───────────────────
+    def _baslik_olustur(self):
+        for item in self._baslik_items:
+            self.removeItem(item)
+        self._baslik_items.clear()
+
+        for i in range(4):
+            x1 = int(A4_W * SUTUN_ORANLARI[i])
+            x2 = int(A4_W * SUTUN_ORANLARI[i + 1])
+            # Arka plan dikdörtgeni
+            bg = QGraphicsRectItem(x1, 0, x2 - x1, BASLIK_H)
+            bg.setBrush(QBrush(QColor("#E8F0F8")))
+            bg.setPen(QPen(QColor("#B5C8E0"), 0.8))
+            bg.setZValue(-5)
+            bg.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
+            bg.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
+            self.addItem(bg)
+            self._baslik_items.append(bg)
+            # Metin
+            txt = QGraphicsSimpleTextItem(SUTUN_ADLARI[i])
+            f = QFont(FONT_AILESI, 9); f.setBold(True)
+            txt.setFont(f)
+            txt.setBrush(QBrush(QColor("#1A1A1A")))  # siyah
+            txt.setZValue(-4)
+            txt.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
+            txt.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
+            # Ortala
+            tw = txt.boundingRect().width()
+            cx = x1 + (x2 - x1 - tw) / 2
+            txt.setPos(cx, (BASLIK_H - txt.boundingRect().height()) / 2)
+            self.addItem(txt)
+            self._baslik_items.append(txt)
+
+    # ── Arka plan (sadece çizgiler — başlıklar artık sahne item'ı) ────────────
     def drawBackground(self, painter, rect):
         painter.fillRect(rect, QColor("#FAFAFA"))
+
+        # Sütun kılavuz çizgileri
+        toplam_h = self.sceneRect().height()
         for oran in SUTUN_ORANLARI[1:-1]:
-            x = int(CANVAS_W * oran)
-            painter.setPen(QPen(QColor("#C5D8EE"), 1.2, Qt.PenStyle.DashLine))
-            painter.drawLine(x, 0, x, int(self.sceneRect().height()))
-        for i in range(4):
-            x1 = int(CANVAS_W * SUTUN_ORANLARI[i])
-            x2 = int(CANVAS_W * SUTUN_ORANLARI[i + 1])
-            painter.setPen(QPen(QColor("#7B9EC4")))
-            f = QFont(FONT_AILESI, 9); f.setBold(True); painter.setFont(f)
+            x = int(A4_W * oran)
+            painter.setPen(QPen(QColor("#C5D8EE"), 1.0, Qt.PenStyle.DashLine))
+            painter.drawLine(x, 0, x, int(toplam_h))
+
+        # A4 sayfa sınırları — kesik çizgi
+        sayfa = 1
+        while sayfa * A4_H < toplam_h + A4_H:
+            y = sayfa * A4_H
+            painter.setPen(QPen(QColor("#AABBCC"), 1.5, Qt.PenStyle.DashLine))
+            painter.drawLine(0, y, A4_W, y)
+            # Sayfa etiketi
+            painter.setPen(QPen(QColor("#AABBCC")))
+            f = QFont(FONT_AILESI, 8); painter.setFont(f)
             painter.drawText(
-                QRectF(x1 + 4, 4, x2 - x1 - 8, 22),
-                Qt.AlignmentFlag.AlignCenter, SUTUN_ADLARI[i])
+                QRectF(A4_W - 80, y - 18, 75, 16),
+                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+                f"Sayfa {sayfa}")
+            sayfa += 1
 
     # ── Mod ───────────────────────────────────────────────────────────────────
     def set_mod(self, mod: str):
@@ -421,8 +477,9 @@ class AkisSahne(QGraphicsScene):
     # ── Canvas boyutunu otomatik büyüt ────────────────────────────────────────
     def _canvas_buyut(self, y_max: float):
         sr = self.sceneRect()
-        if y_max + 100 > sr.height():
-            self.setSceneRect(0, 0, CANVAS_W, y_max + 300)
+        if y_max + 200 > sr.height():
+            yeni_h = y_max + A4_H  # bir sayfa daha ekle
+            self.setSceneRect(0, 0, A4_W, yeni_h)
 
     # ── Mouse ─────────────────────────────────────────────────────────────────
     def mousePressEvent(self, event):
@@ -444,16 +501,14 @@ class AkisSahne(QGraphicsScene):
 
         if self._mod == MOD_DKRT:
             w, h = 160, 52
-            x = round((pos.x() - w / 2) / 20) * 20
-            y = round((pos.y() - h / 2) / 20) * 20
+            x = round((pos.x() - w/2) / 20) * 20
+            y = max(BASLIK_H + 5, round((pos.y() - h/2) / 20) * 20)
             self._durum_kaydet()
             v = SekliVeri(metin="Metin", x=x, y=y, w=w, h=h)
             self._sekil_ekle(v)
             self._canvas_buyut(y + h)
-            # Sadece yeni şekli seç
             self.clearSelection()
             self._sekil_items[v.id].setSelected(True)
-            # Otomatik Seç moduna geç
             self._mod = MOD_SEC
             self.mod_otomatik_sec.emit()
             self.degisti.emit()
@@ -478,12 +533,25 @@ class AkisSahne(QGraphicsScene):
             self._ok_ekle(ok)
             self._ok_bas = None
             self._canvas_buyut(max(ok.y1, ok.y2))
-            # Otomatik Seç moduna geç
             self._mod = MOD_SEC
             self.mod_otomatik_sec.emit()
             self.degisti.emit()
             return
         super().mouseReleaseEvent(event)
+
+    # ── Seçim ─────────────────────────────────────────────────────────────────
+    def _secim_degisti(self):
+        sec = [s for s in self.selectedItems()
+               if isinstance(s, (SekliItem, OkItem))]
+        if not sec:
+            self.sekil_secildi.emit(None)
+            self.ok_secildi.emit(None)
+        elif isinstance(sec[0], SekliItem):
+            self.sekil_secildi.emit(sec[0].veri)
+            self.ok_secildi.emit(None)
+        elif isinstance(sec[0], OkItem):
+            self.sekil_secildi.emit(None)
+            self.ok_secildi.emit(sec[0].veri)
 
     # ── Öğe yönetimi ──────────────────────────────────────────────────────────
     def _sekil_ekle(self, v: SekliVeri):
@@ -501,18 +569,6 @@ class AkisSahne(QGraphicsScene):
     def okları_guncelle(self):
         for oi in self._ok_items.values():
             oi.guncelle()
-
-    def _secim_degisti(self):
-        sec = self.selectedItems()
-        if sec and isinstance(sec[0], SekliItem):
-            self.sekil_secildi.emit(sec[0].veri)
-            self.ok_secildi.emit(None)
-        elif sec and isinstance(sec[0], OkItem):
-            self.sekil_secildi.emit(None)
-            self.ok_secildi.emit(sec[0].veri)
-        else:
-            self.sekil_secildi.emit(None)
-            self.ok_secildi.emit(None)
 
     def secili_sil(self):
         self._durum_kaydet()
@@ -568,6 +624,7 @@ class AkisSahne(QGraphicsScene):
         self._yukle_durum(self._geri_al.pop())
 
     def _yukle_durum(self, d: dict):
+        # Başlık item'larını koru
         for item in list(self._sekil_items.values()): self.removeItem(item)
         for item in list(self._ok_items.values()):    self.removeItem(item)
         self._sekil_items.clear(); self._ok_items.clear()
@@ -583,72 +640,97 @@ class AkisSahne(QGraphicsScene):
 
     def yukle(self, d: dict):
         self._yukle_durum(d)
+        # Canvas boyutunu ayarla
+        if d.get("sekiller") or d.get("oklar"):
+            tum_y = []
+            for s in d.get("sekiller", []):
+                tum_y.append(s.get("y", 0) + s.get("h", 0))
+            for o in d.get("oklar", []):
+                tum_y.append(max(o.get("y1", 0), o.get("y2", 0)))
+            if tum_y:
+                self._canvas_buyut(max(tum_y))
 
     def temizle(self):
         self._yukle_durum({"sekiller": [], "oklar": []})
 
     # ── PNG ───────────────────────────────────────────────────────────────────
-    def png_render(self, src_rect: QRectF = None, dpi: int = 200) -> bytes:
-        """
-        src_rect verilirse sadece o alanı render eder.
-        Verilmezse tüm şekil ve okların bounding rect'ini kullanır.
-        """
+    def _hesapla_src_rect(self) -> QRectF:
+        """Tüm şekil ve okları kapsayan alan."""
+        items = [item for item in self.items()
+                 if isinstance(item, (SekliItem, OkItem))]
+        if items:
+            rects = [item.sceneBoundingRect() for item in items]
+            min_x = min(r.left()   for r in rects)
+            min_y = min(r.top()    for r in rects)
+            max_x = max(r.right()  for r in rects)
+            max_y = max(r.bottom() for r in rects)
+            # Başlık alanını dahil et (y=0'dan başla)
+            min_y = min(min_y, 0)
+            min_x = max(0, min_x - 20)
+            max_x = min(A4_W, max_x + 20)
+            min_y = max(0, min_y)
+            max_y = max_y + 40
+            return QRectF(min_x, min_y, max_x - min_x, max_y - min_y)
+        return QRectF(0, 0, A4_W, A4_H)
+
+    def _render_rect(self, src_rect: QRectF, dpi: int = 200) -> bytes:
         import tempfile, os
-
-        if src_rect is None:
-            items = [item for item in self.items()
-                     if isinstance(item, (SekliItem, OkItem))]
-            if items:
-                # sceneBoundingRect() doğrudan sahne koordinatında bounding rect verir
-                rects = [item.sceneBoundingRect() for item in items]
-                min_x = min(r.left()   for r in rects) - 40
-                min_y = min(r.top()    for r in rects) - 40
-                max_x = max(r.right()  for r in rects) + 40
-                max_y = max(r.bottom() for r in rects) + 40
-                src_rect = QRectF(min_x, min_y,
-                                  max_x - min_x, max_y - min_y)
-            else:
-                src_rect = QRectF(0, 0, CANVAS_W, 400)
-
-        sc  = dpi / 96.0
-        img = QImage(max(1, int(src_rect.width()  * sc)),
+        sc = dpi / 96.0
+        img = QImage(max(1, int(src_rect.width() * sc)),
                      max(1, int(src_rect.height() * sc)),
                      QImage.Format.Format_ARGB32)
         img.fill(Qt.GlobalColor.white)
         p = QPainter(img)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        # target: tüm image, source: sahne alanı — scale otomatik hesaplanır
         target = QRectF(0, 0, src_rect.width() * sc, src_rect.height() * sc)
         self.render(p, target=target, source=src_rect)
         p.end()
-
         tmp = tempfile.mktemp(suffix=".png")
         img.save(tmp)
         with open(tmp, "rb") as f: data = f.read()
         os.unlink(tmp)
         return data
 
-    def png_kaydet(self, dosya: str, src_rect: QRectF = None, dpi: int = 200):
+    def png_render_tum(self, dpi: int = 200) -> bytes:
+        """Tüm şemayı tek PNG olarak döner."""
+        return self._render_rect(self._hesapla_src_rect(), dpi)
+
+    def png_render_sayfalar(self, dpi: int = 200) -> list[bytes]:
+        """Her A4 sayfası için ayrı PNG döner."""
+        src = self._hesapla_src_rect()
+        sayfalar = []
+        y = 0
+        while y < src.bottom():
+            sayfa_rect = QRectF(src.left(), y,
+                                src.width(),
+                                min(A4_H, src.bottom() - y))
+            if sayfa_rect.height() > 10:
+                sayfalar.append(self._render_rect(sayfa_rect, dpi))
+            y += A4_H
+        return sayfalar if sayfalar else [self._render_rect(src, dpi)]
+
+    def png_kaydet_tum(self, dosya: str, dpi: int = 200):
         with open(dosya, "wb") as f:
-            f.write(self.png_render(src_rect=src_rect, dpi=dpi))
+            f.write(self.png_render_tum(dpi))
+
+    def png_kaydet_sayfalar(self, dosya_oneki: str, dpi: int = 200) -> list[str]:
+        sayfalar = self.png_render_sayfalar(dpi)
+        dosyalar = []
+        for i, data in enumerate(sayfalar, 1):
+            ad = f"{dosya_oneki}_sayfa{i}.png"
+            with open(ad, "wb") as f: f.write(data)
+            dosyalar.append(ad)
+        return dosyalar
 
 
 # ─── Canvas View ──────────────────────────────────────────────────────────────
 class AkisCanvas(QGraphicsView):
-    """
-    Drag modu: NoDrag — şekil taşıma ve seçimi tamamen QGraphicsItem'a bırakılmıştır.
-    Pan: Boşluk tuşuna basılı tutunca ScrollHandDrag.
-    Boş alana tıklanınca pan başlar (sol tuşla da).
-    """
     def __init__(self, sahne: AkisSahne, parent=None):
         super().__init__(sahne, parent)
-        self._sahne   = sahne
+        self._sahne     = sahne
         self._pan_aktif = False
         self._pan_bas   = None
-
         self.setRenderHint(QPainter.RenderHint.Antialiasing)
-        # ÖNEMLİ: NoDrag — Qt'nin kendi sürükleme sistemi yok
-        # Seçim ve taşıma QGraphicsItem tarafından yapılır
         self.setDragMode(QGraphicsView.DragMode.NoDrag)
         self.setTransformationAnchor(
             QGraphicsView.ViewportAnchor.AnchorUnderMouse)
@@ -660,41 +742,36 @@ class AkisCanvas(QGraphicsView):
             Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.setStyleSheet("background:#FAFAFA; border:none;")
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.fitInView(QRectF(0, 0, CANVAS_W, 800),
+        # İlk görünüm: sayfanın üstü
+        self.fitInView(QRectF(0, 0, A4_W, A4_H),
                        Qt.AspectRatioMode.KeepAspectRatio)
 
     def set_mod(self, mod: str):
         self._sahne.set_mod(mod)
-        if mod in (MOD_OK, MOD_LOK):
-            self.setCursor(Qt.CursorShape.CrossCursor)
-        elif mod == MOD_DKRT:
+        if mod in (MOD_OK, MOD_LOK, MOD_DKRT):
             self.setCursor(Qt.CursorShape.CrossCursor)
         else:
             self.setCursor(Qt.CursorShape.ArrowCursor)
 
-    # ── Zoom ──────────────────────────────────────────────────────────────────
     def wheelEvent(self, event):
         f = 1.15 if event.angleDelta().y() > 0 else 0.87
         self.scale(f, f)
 
-    # ── Pan ve Seçim ──────────────────────────────────────────────────────────
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
-            # Tıklanan yerde item var mı?
             item = self.itemAt(event.pos())
-            # Tutamaclar item sayılmaz (ebeveyn şeklin kontrolü)
-            gercek_item = item
+            # Başlık item'larına tıklanınca pan başlatma
+            gercek = item
             if isinstance(item, Tutamac):
-                gercek_item = item.parentItem()
-
-            if gercek_item is None and self._sahne._mod == MOD_SEC:
-                # Boş alana tıklandı → pan başlat
-                self._pan_aktif = True
-                self._pan_bas   = event.pos()
-                self.setCursor(Qt.CursorShape.ClosedHandCursor)
-                event.accept()
-                return
-
+                gercek = item.parentItem()
+            if (gercek is None or
+                    (hasattr(gercek, 'zValue') and gercek.zValue() <= -4)):
+                if self._sahne._mod == MOD_SEC:
+                    self._pan_aktif = True
+                    self._pan_bas   = event.pos()
+                    self.setCursor(Qt.CursorShape.ClosedHandCursor)
+                    event.accept()
+                    return
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
@@ -718,17 +795,14 @@ class AkisCanvas(QGraphicsView):
             return
         super().mouseReleaseEvent(event)
 
-    # ── Klavye ────────────────────────────────────────────────────────────────
     def keyPressEvent(self, event):
         s    = self._sahne
         key  = event.key()
         ctrl = event.modifiers() == Qt.KeyboardModifier.ControlModifier
-
         if key == Qt.Key.Key_Space and not event.isAutoRepeat():
             self._pan_aktif = True
             self.setCursor(Qt.CursorShape.OpenHandCursor)
             event.accept(); return
-
         if key in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
             s.secili_sil(); return
         if ctrl and key == Qt.Key.Key_Z: s.geri_al();    return
@@ -757,36 +831,40 @@ class OzelliklerPaneli(QWidget):
         self._v   = None
         self._gun = False
         self.setMinimumWidth(200)
-
         l = QVBoxLayout(self)
         l.setContentsMargins(10, 10, 10, 10); l.setSpacing(6)
 
-        t = QLabel("Özellikler")
-        t.setStyleSheet(
+        lbl_baslik = QLabel("Özellikler")
+        lbl_baslik.setStyleSheet(
             f"font-size:12px;font-weight:bold;color:{RENK_YAZI_BIRINCIL};")
-        l.addWidget(t)
+        l.addWidget(lbl_baslik)
 
-        # ── Şekil seçilmedi etiketi ───────────────────────────────────────────
-        self.lbl_bos = QLabel("Şekil seçilmedi")
+        # Boş durum
+        self.lbl_bos = QLabel("Şekil veya ok seçilmedi")
         self.lbl_bos.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_bos.setWordWrap(True)
         self.lbl_bos.setStyleSheet(
-            f"font-size:11px;color:{RENK_YAZI_UCUNCUL};padding:16px 0;")
+            f"font-size:11px;color:{RENK_YAZI_UCUNCUL};padding:16px 4px;")
         l.addWidget(self.lbl_bos)
 
-        # ── Ok paneli (sadece ok seçilince görünür) ───────────────────────────
+        # Ok paneli
         self.ok_pnl = QWidget()
         okl = QVBoxLayout(self.ok_pnl)
-        okl.setContentsMargins(0, 0, 0, 0); okl.setSpacing(6)
-        okl.addWidget(self._lbl("Ok Seçili"))
-        lbl_ok = QLabel("Oku taşımak için sürükle.\nSilmek için Del tuşu veya aşağıdaki butonu kullan.")
-        lbl_ok.setWordWrap(True)
-        lbl_ok.setStyleSheet(f"font-size:10px;color:{RENK_YAZI_IKINCIL};")
-        okl.addWidget(lbl_ok)
+        okl.setContentsMargins(0,0,0,0); okl.setSpacing(6)
+        lbl_ok_sec = QLabel("Ok Seçili")
+        lbl_ok_sec.setStyleSheet(
+            f"font-size:11px;font-weight:bold;color:{RENK_YAZI_BIRINCIL};")
+        okl.addWidget(lbl_ok_sec)
+        lbl_ok_acik = QLabel("Oku taşımak için sürükle.\nSilmek için Del veya aşağıdaki butonu kullan.")
+        lbl_ok_acik.setWordWrap(True)
+        lbl_ok_acik.setStyleSheet(
+            f"font-size:10px;color:{RENK_YAZI_IKINCIL};")
+        okl.addWidget(lbl_ok_acik)
         btn_ok_sil = QPushButton("✕  Oku Sil (Del)")
         btn_ok_sil.setStyleSheet(
             f"QPushButton{{background:#FADBD8;color:#C0392B;"
             f"border:1px solid #F1948A;border-radius:5px;"
-            f"font-size:11px;padding:5px;}}"
+            f"font-size:11px;padding:6px;}}"
             f"QPushButton:hover{{background:#F1948A;color:white;}}")
         btn_ok_sil.clicked.connect(self.sil_iste)
         okl.addWidget(btn_ok_sil)
@@ -794,10 +872,10 @@ class OzelliklerPaneli(QWidget):
         l.addWidget(self.ok_pnl)
         self.ok_pnl.setVisible(False)
 
-        # ── Şekil paneli ──────────────────────────────────────────────────────
+        # Şekil paneli
         self.pnl = QWidget()
         pl = QVBoxLayout(self.pnl)
-        pl.setContentsMargins(0, 0, 0, 0); pl.setSpacing(5)
+        pl.setContentsMargins(0,0,0,0); pl.setSpacing(5)
 
         # Metin
         pl.addWidget(self._lbl("Metin"))
@@ -818,12 +896,12 @@ class OzelliklerPaneli(QWidget):
         yw = QWidget(); yl = QHBoxLayout(yw)
         yl.setContentsMargins(0,0,0,0); yl.setSpacing(2)
         self._yg = QButtonGroup(self); self._yg.setExclusive(True)
-        for lbl_txt, val in [("Sol","sol"),("Orta","orta"),("Sağ","sag")]:
-            b = QPushButton(lbl_txt); b.setFixedHeight(24); b.setCheckable(True)
+        for t, v in [("Sol","sol"),("Orta","orta"),("Sağ","sag")]:
+            b = QPushButton(t); b.setFixedHeight(24); b.setCheckable(True)
             b.setStyleSheet(self._hbtn())
-            b.clicked.connect(lambda _, v=val: self._yh(v))
+            b.clicked.connect(lambda _, val=v: self._yh(val))
             self._yg.addButton(b); yl.addWidget(b)
-            setattr(self, f"by_{val}", b)
+            setattr(self, f"by_{v}", b)
         pl.addWidget(yw)
 
         # Dikey hizalama
@@ -831,12 +909,12 @@ class OzelliklerPaneli(QWidget):
         dw = QWidget(); dl = QHBoxLayout(dw)
         dl.setContentsMargins(0,0,0,0); dl.setSpacing(2)
         self._dg = QButtonGroup(self); self._dg.setExclusive(True)
-        for lbl_txt, val in [("Üst","ust"),("Orta","orta"),("Alt","alt")]:
-            b = QPushButton(lbl_txt); b.setFixedHeight(24); b.setCheckable(True)
+        for t, v in [("Üst","ust"),("Orta","orta"),("Alt","alt")]:
+            b = QPushButton(t); b.setFixedHeight(24); b.setCheckable(True)
             b.setStyleSheet(self._hbtn())
-            b.clicked.connect(lambda _, v=val: self._dh(v))
+            b.clicked.connect(lambda _, val=v: self._dh(val))
             self._dg.addButton(b); dl.addWidget(b)
-            setattr(self, f"bd_{val}", b)
+            setattr(self, f"bd_{v}", b)
         pl.addWidget(dw)
 
         # Boyut
@@ -856,7 +934,7 @@ class OzelliklerPaneli(QWidget):
         kw = QWidget(); kl = QHBoxLayout(kw)
         kl.setContentsMargins(0,0,0,0); kl.setSpacing(3)
         self.sx = QSpinBox(); self.sx.setRange(-500, 2000)
-        self.sy = QSpinBox(); self.sy.setRange(-500, 5000)
+        self.sy = QSpinBox(); self.sy.setRange(-500, 10000)
         for sp in (self.sx, self.sy):
             sp.setStyleSheet(self._inp()); kl.addWidget(sp)
         self.sx.valueChanged.connect(self._k)
@@ -876,7 +954,7 @@ class OzelliklerPaneli(QWidget):
         rl.setContentsMargins(0,0,0,0); rl.setSpacing(3)
         self._rbtn = {}
         for isim, renk in KENAR_RENKLERI.items():
-            b = QPushButton(); b.setFixedSize(24, 24); b.setCheckable(True)
+            b = QPushButton(); b.setFixedSize(24,24); b.setCheckable(True)
             b.setToolTip(isim)
             b.setStyleSheet(
                 f"QPushButton{{background:{renk};border:2px solid transparent;"
@@ -895,7 +973,6 @@ class OzelliklerPaneli(QWidget):
         pl.addWidget(self.cbs)
 
         pl.addSpacing(6)
-
         for txt, sig, stil in [
             ("✕  Sil (Del)",         self.sil_iste,
              f"background:#FADBD8;color:#C0392B;border:1px solid #F1948A;"),
@@ -914,8 +991,8 @@ class OzelliklerPaneli(QWidget):
                 f"QPushButton{{{stil}border-radius:5px;"
                 f"font-size:11px;padding:5px;}}")
             b.clicked.connect(sig); pl.addWidget(b)
-
         pl.addStretch()
+
         l.addWidget(self.pnl)
         l.addStretch()
         self.pnl.setVisible(False)
@@ -927,7 +1004,7 @@ class OzelliklerPaneli(QWidget):
         return lb
 
     def _inp(self):
-        return (f"QSpinBox,QTextEdit,QComboBox{{"
+        return (f"QSpinBox,QTextEdit,QComboBox,QFontComboBox{{"
                 f"border:1px solid {RENK_KENARLIK};border-radius:4px;"
                 f"padding:3px 6px;font-size:11px;"
                 f"background:{RENK_BG_BIRINCIL};}}")
@@ -940,6 +1017,7 @@ class OzelliklerPaneli(QWidget):
                 f"QPushButton:hover{{background:{RENK_PRIMARY_ACIK};}}")
 
     def yukle(self, v):
+        """SekliVeri veya OkVeri veya None alır."""
         self._v = v
         is_sekil = isinstance(v, SekliVeri)
         is_ok    = isinstance(v, OkVeri)
@@ -949,9 +1027,8 @@ class OzelliklerPaneli(QWidget):
         if not is_sekil: return
         self._gun = True
         self.txt.setPlainText(v.metin)
-        # Font
         from PyQt6.QtGui import QFont as QF
-        fa = getattr(v, 'font_ailesi', FONT_AILESI)
+        fa = getattr(v, 'font_ailesi', FONT_AILESI) or FONT_AILESI
         self.font_combo.setCurrentFont(QF(fa))
         self.sw.setValue(int(v.w));  self.sh.setValue(int(v.h))
         self.sx.setValue(int(v.x));  self.sy.setValue(int(v.y))
@@ -966,45 +1043,45 @@ class OzelliklerPaneli(QWidget):
         self._gun = False
 
     def _emit(self):
-        if not self._gun and self._v:
+        if not self._gun and isinstance(self._v, SekliVeri):
             self.degisti.emit(self._v)
 
-    def _ft(self, font):
-        if self._gun or not self._v: return
-        self._v.font_ailesi = font.family(); self._emit()
-
     def _m(self):
-        if self._gun or not self._v: return
+        if self._gun or not isinstance(self._v, SekliVeri): return
         self._v.metin = self.txt.toPlainText(); self._emit()
 
+    def _ft(self, font):
+        if self._gun or not isinstance(self._v, SekliVeri): return
+        self._v.font_ailesi = font.family(); self._emit()
+
     def _b(self):
-        if self._gun or not self._v: return
+        if self._gun or not isinstance(self._v, SekliVeri): return
         self._v.w = self.sw.value(); self._v.h = self.sh.value(); self._emit()
 
     def _k(self):
-        if self._gun or not self._v: return
+        if self._gun or not isinstance(self._v, SekliVeri): return
         self._v.x = self.sx.value(); self._v.y = self.sy.value(); self._emit()
 
     def _yb(self):
-        if self._gun or not self._v: return
+        if self._gun or not isinstance(self._v, SekliVeri): return
         self._v.yazi_boyut = self.syb.value(); self._emit()
 
     def _yh(self, val):
-        if self._gun or not self._v: return
+        if self._gun or not isinstance(self._v, SekliVeri): return
         self._v.yatay = val; self._emit()
 
     def _dh(self, val):
-        if self._gun or not self._v: return
+        if self._gun or not isinstance(self._v, SekliVeri): return
         self._v.dikey = val; self._emit()
 
     def _rc(self, renk):
-        if self._gun or not self._v: return
+        if self._gun or not isinstance(self._v, SekliVeri): return
         self._v.kenar_renk = renk
         for r, b in self._rbtn.items(): b.setChecked(r == renk)
         self._emit()
 
     def _ks(self, stil):
-        if self._gun or not self._v: return
+        if self._gun or not isinstance(self._v, SekliVeri): return
         self._v.kenar_stil = stil; self._emit()
 
 
@@ -1024,13 +1101,13 @@ class AkisEditoruDialog(QDialog):
             Qt.WindowType.WindowCloseButtonHint)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0); layout.setSpacing(0)
+        layout.setContentsMargins(0,0,0,0); layout.setSpacing(0)
 
         # Başlık
         bf = QFrame()
         bf.setStyleSheet(f"background:{RENK_PRIMARY};")
         bf.setFixedHeight(36)
-        bl = QHBoxLayout(bf); bl.setContentsMargins(14, 0, 14, 0)
+        bl = QHBoxLayout(bf); bl.setContentsMargins(14,0,14,0)
         tl = QLabel("Proses Akış Şeması Editörü")
         tl.setStyleSheet("font-size:13px;font-weight:bold;color:white;")
         bl.addWidget(tl); bl.addStretch()
@@ -1048,7 +1125,7 @@ class AkisEditoruDialog(QDialog):
             f"background:{RENK_BG_BIRINCIL};"
             f"border-bottom:1px solid {RENK_KENARLIK};")
         tbl = QHBoxLayout(tb)
-        tbl.setContentsMargins(10, 0, 10, 0); tbl.setSpacing(4)
+        tbl.setContentsMargins(10,0,10,0); tbl.setSpacing(4)
 
         self._mod_grup = QButtonGroup(self); self._mod_grup.setExclusive(True)
         self._mod_btnlar = {}
@@ -1060,12 +1137,10 @@ class AkisEditoruDialog(QDialog):
         ]:
             b = QToolButton()
             b.setText(etiket); b.setToolTip(tip)
-            b.setCheckable(True)
-            b.setFixedHeight(30); b.setMinimumWidth(90)
+            b.setCheckable(True); b.setFixedHeight(30); b.setMinimumWidth(90)
             b.setStyleSheet(
-                f"QToolButton{{border:1px solid {RENK_KENARLIK};"
-                f"border-radius:5px;font-size:11px;"
-                f"color:{RENK_YAZI_BIRINCIL};padding:0 8px;}}"
+                f"QToolButton{{border:1px solid {RENK_KENARLIK};border-radius:5px;"
+                f"font-size:11px;color:{RENK_YAZI_BIRINCIL};padding:0 8px;}}"
                 f"QToolButton:hover{{background:{RENK_PRIMARY_ACIK};}}"
                 f"QToolButton:checked{{background:{RENK_PRIMARY_ACIK};"
                 f"border-color:{RENK_PRIMARY};color:{RENK_PRIMARY};"
@@ -1078,9 +1153,8 @@ class AkisEditoruDialog(QDialog):
 
         tbl.addSpacing(6)
         sep = QFrame(); sep.setFrameShape(QFrame.Shape.VLine)
-        sep.setStyleSheet(f"color:{RENK_KENARLIK};")
-        sep.setFixedHeight(24); tbl.addWidget(sep)
-        tbl.addSpacing(6)
+        sep.setStyleSheet(f"color:{RENK_KENARLIK};"); sep.setFixedHeight(24)
+        tbl.addWidget(sep); tbl.addSpacing(6)
 
         b_geri = QPushButton("↩ Geri Al")
         b_geri.setFixedHeight(30); b_geri.setToolTip("Geri Al (Ctrl+Z)")
@@ -1091,9 +1165,9 @@ class AkisEditoruDialog(QDialog):
         tbl.addStretch()
 
         for etiket, slot, tip in [
-            ("Yakınlaş +",    lambda: self._canvas.scale(1.2, 1.2),    "Yakınlaştır"),
-            ("Uzaklaş −",     lambda: self._canvas.scale(0.83, 0.83),  "Uzaklaştır"),
-            ("Tümünü Göster", self._tumu_goster, "Tüm şemayı göster"),
+            ("Yakınlaş +",     lambda: self._canvas.scale(1.2, 1.2),   "Yakınlaştır"),
+            ("Uzaklaş −",      lambda: self._canvas.scale(0.83, 0.83), "Uzaklaştır"),
+            ("Tümünü Göster",  self._tumu_goster, "Tüm şemayı göster"),
         ]:
             b = QPushButton(etiket)
             b.setFixedHeight(30); b.setToolTip(tip)
@@ -1103,7 +1177,6 @@ class AkisEditoruDialog(QDialog):
         tbl.addSpacing(6)
         b_png = QPushButton("📷  PNG Aktar")
         b_png.setFixedHeight(30)
-        b_png.setToolTip("Akış şemasını PNG olarak kaydet")
         b_png.setStyleSheet(
             f"QPushButton{{border:1px solid {RENK_PRIMARY};"
             f"border-radius:5px;background:{RENK_PRIMARY_ACIK};"
@@ -1115,26 +1188,22 @@ class AkisEditoruDialog(QDialog):
 
         # İçerik
         ic = QHBoxLayout()
-        ic.setContentsMargins(0, 0, 0, 0); ic.setSpacing(0)
+        ic.setContentsMargins(0,0,0,0); ic.setSpacing(0)
 
         self._sahne = AkisSahne()
         self._canvas = AkisCanvas(self._sahne)
         ic.addWidget(self._canvas, 1)
 
-        # Sağ panel
         pf = QFrame()
         pf.setStyleSheet(
             f"border-left:1px solid {RENK_KENARLIK};"
             f"background:{RENK_BG_BIRINCIL};")
-        pfl = QVBoxLayout(pf); pfl.setContentsMargins(0, 0, 0, 0)
+        pfl = QVBoxLayout(pf); pfl.setContentsMargins(0,0,0,0)
         self._ozellik = OzelliklerPaneli()
         sc = QScrollArea()
-        sc.setWidget(self._ozellik)
-        sc.setWidgetResizable(True)
-        sc.setFixedWidth(230)
-        sc.setFrameShape(QFrame.Shape.NoFrame)
-        sc.setHorizontalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        sc.setWidget(self._ozellik); sc.setWidgetResizable(True)
+        sc.setFixedWidth(230); sc.setFrameShape(QFrame.Shape.NoFrame)
+        sc.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         pfl.addWidget(sc)
         ic.addWidget(pf)
 
@@ -1148,7 +1217,7 @@ class AkisEditoruDialog(QDialog):
             f"background:{RENK_BG_IKINCIL};"
             f"border-top:1px solid {RENK_KENARLIK};")
         al = QHBoxLayout(af)
-        al.setContentsMargins(12, 0, 12, 0); al.setSpacing(8)
+        al.setContentsMargins(12,0,12,0); al.setSpacing(8)
         self.lbl_d = QLabel("Hazır")
         self.lbl_d.setStyleSheet(
             f"font-size:10px;color:{RENK_YAZI_UCUNCUL};")
@@ -1158,8 +1227,7 @@ class AkisEditoruDialog(QDialog):
              f"border:1px solid {RENK_KENARLIK};background:{RENK_BG_IKINCIL};"
              f"color:{RENK_YAZI_BIRINCIL};"),
             ("💾  Kaydet ve Kapat", self._kaydet,
-             f"border:none;background:{RENK_PRIMARY};color:white;"
-             f"font-weight:bold;"),
+             f"border:none;background:{RENK_PRIMARY};color:white;font-weight:bold;"),
         ]:
             b = QPushButton(etiket); b.setFixedHeight(26)
             b.setStyleSheet(
@@ -1180,8 +1248,7 @@ class AkisEditoruDialog(QDialog):
         self._ozellik.kes_iste.connect(self._sahne.kes)
         self._ozellik.yapistir.connect(self._sahne.yapistir)
 
-        if data:
-            self._sahne.yukle(data)
+        if data: self._sahne.yukle(data)
         self.showMaximized()
 
     def _bstil(self):
@@ -1195,7 +1262,6 @@ class AkisEditoruDialog(QDialog):
         self._canvas.set_mod(mod)
 
     def _sec_mod(self):
-        """Şekil/ok eklendikten sonra otomatik Seç moduna geç."""
         self._canvas.set_mod(MOD_SEC)
         if MOD_SEC in self._mod_btnlar:
             self._mod_btnlar[MOD_SEC].setChecked(True)
@@ -1215,23 +1281,22 @@ class AkisEditoruDialog(QDialog):
         self._sahne.degisti.emit()
 
     def _png(self):
-        from PyQt6.QtWidgets import QDialog, QDialogButtonBox
-
         dlg = QDialog(self)
         dlg.setWindowTitle("PNG Kaydet")
-        dlg.setFixedWidth(320)
+        dlg.setFixedWidth(340)
         dl = QVBoxLayout(dlg)
-        dl.addWidget(QLabel("Hangi alanı kaydetmek istiyorsunuz?"))
+        dl.setSpacing(8); dl.setContentsMargins(16,16,16,16)
+        dl.addWidget(QLabel("Nasıl kaydetmek istiyorsunuz?"))
 
-        btn_tum = QPushButton("Tüm Şema (tüm kutular ve oklar)")
+        btn_tum = QPushButton("📄  Tüm Şema (tek PNG)")
         btn_tum.setStyleSheet(
             f"QPushButton{{border:1px solid {RENK_PRIMARY};"
             f"border-radius:5px;background:{RENK_PRIMARY_ACIK};"
             f"color:{RENK_PRIMARY};font-size:11px;padding:8px;}}"
             f"QPushButton:hover{{background:{RENK_PRIMARY};color:white;}}")
 
-        btn_gorunen = QPushButton("Şu An Ekranda Görünen Alan")
-        btn_gorunen.setStyleSheet(
+        btn_sayfa = QPushButton("📋  Her A4 Sayfası Ayrı PNG")
+        btn_sayfa.setStyleSheet(
             f"QPushButton{{border:1px solid {RENK_KENARLIK};"
             f"border-radius:5px;background:{RENK_BG_IKINCIL};"
             f"color:{RENK_YAZI_BIRINCIL};font-size:11px;padding:8px;}}"
@@ -1243,31 +1308,36 @@ class AkisEditoruDialog(QDialog):
             f"color:{RENK_YAZI_UCUNCUL};padding:4px;}}")
 
         dl.addWidget(btn_tum)
-        dl.addWidget(btn_gorunen)
+        dl.addWidget(btn_sayfa)
         dl.addWidget(btn_iptal)
 
         secim = [None]
-        btn_tum.clicked.connect(lambda: (secim.__setitem__(0, "tum"), dlg.accept()))
-        btn_gorunen.clicked.connect(lambda: (secim.__setitem__(0, "gorunen"), dlg.accept()))
+        btn_tum.clicked.connect(   lambda: (secim.__setitem__(0,"tum"),    dlg.accept()))
+        btn_sayfa.clicked.connect( lambda: (secim.__setitem__(0,"sayfa"),  dlg.accept()))
         btn_iptal.clicked.connect(dlg.reject)
 
-        if dlg.exec() != QDialog.DialogCode.Accepted or secim[0] is None:
-            return
-
-        dosya, _ = QFileDialog.getSaveFileName(
-            self, "PNG Olarak Kaydet", "akis_semasi.png", "PNG (*.png)")
-        if not dosya:
+        if dlg.exec() != QDialog.DialogCode.Accepted or not secim[0]:
             return
 
         if secim[0] == "tum":
-            self._sahne.png_kaydet(dosya, src_rect=None, dpi=200)
+            dosya, _ = QFileDialog.getSaveFileName(
+                self, "PNG Kaydet", "akis_semasi.png", "PNG (*.png)")
+            if dosya:
+                self._sahne.png_kaydet_tum(dosya)
+                QMessageBox.information(self, "Kaydedildi",
+                                        f"PNG kaydedildi:\n{dosya}")
         else:
-            gorunen = self._canvas.mapToScene(
-                self._canvas.viewport().rect()).boundingRect()
-            self._sahne.png_kaydet(dosya, src_rect=gorunen, dpi=200)
-
-        QMessageBox.information(self, "Kaydedildi",
-                                f"PNG kaydedildi:\n{dosya}")
+            dosya, _ = QFileDialog.getSaveFileName(
+                self, "Kayıt Konumu (sayfa numarası eklenecek)",
+                "akis_semasi", "PNG (*.png)")
+            if dosya:
+                # .png uzantısını kaldır, onek olarak kullan
+                onek = dosya.replace(".png", "")
+                dosyalar = self._sahne.png_kaydet_sayfalar(onek)
+                QMessageBox.information(
+                    self, "Kaydedildi",
+                    f"{len(dosyalar)} sayfa kaydedildi:\n" +
+                    "\n".join(dosyalar))
 
     def _kaydet(self):
         self.kaydedildi.emit(self._sahne.to_data())
@@ -1276,7 +1346,7 @@ class AkisEditoruDialog(QDialog):
     def get_data(self): return self._sahne.to_data()
 
     def png_binary(self, dpi=200) -> bytes:
-        return self._sahne.png_render(dpi=dpi)
+        return self._sahne.png_render_tum(dpi)
 
 
 # ─── Ana Widget ───────────────────────────────────────────────────────────────
@@ -1287,7 +1357,7 @@ class AkisEditoruWidget(QWidget):
         super().__init__(parent)
         self._data: dict = {"sekiller": [], "oklar": []}
         l = QVBoxLayout(self)
-        l.setContentsMargins(0, 0, 0, 0); l.setSpacing(0)
+        l.setContentsMargins(0,0,0,0); l.setSpacing(0)
 
         tb = QFrame()
         tb.setFixedHeight(46)
@@ -1295,7 +1365,7 @@ class AkisEditoruWidget(QWidget):
             f"background:{RENK_BG_BIRINCIL};"
             f"border-bottom:1px solid {RENK_KENARLIK};")
         tbl = QHBoxLayout(tb)
-        tbl.setContentsMargins(16, 0, 16, 0); tbl.setSpacing(8)
+        tbl.setContentsMargins(16,0,16,0); tbl.setSpacing(8)
         lbl = QLabel("Proses Akış Şeması")
         lbl.setStyleSheet(
             f"font-size:13px;font-weight:bold;color:{RENK_YAZI_BIRINCIL};")
@@ -1350,12 +1420,12 @@ class AkisEditoruWidget(QWidget):
         try:
             s = AkisSahne()
             s.yukle(self._data)
-            png = s.png_render(dpi=72)
+            png = s.png_render_tum(dpi=72)
             pix = QPixmap(); pix.loadFromData(png)
             if not pix.isNull():
                 self._onizleme.setPixmap(
                     pix.scaledToWidth(
-                        min(self._onizleme.width() - 20, pix.width()),
+                        min(self._onizleme.width()-20, pix.width()),
                         Qt.TransformationMode.SmoothTransformation))
         except Exception:
             pass
@@ -1374,4 +1444,4 @@ class AkisEditoruWidget(QWidget):
     def png_binary(self, dpi=200) -> bytes:
         s = AkisSahne()
         s.yukle(self._data)
-        return s.png_render(dpi=dpi)
+        return s.png_render_tum(dpi)
