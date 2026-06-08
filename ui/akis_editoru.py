@@ -206,8 +206,10 @@ class SekliItem(QGraphicsItem):
         for yon, t in self._tutamaclar.items():
             if not t.isVisible():
                 continue
+            # Tutacın merkezi — parent item koordinatından sahneye dönüştür
             t_scene = self.mapToScene(t.pos())
-            if (scene_pos - t_scene).manhattanLength() < TUT + 6:
+            dist = (scene_pos - t_scene).manhattanLength()
+            if dist < TUT * 2 + 8:   # zoom toleransı için daha geniş alan
                 return yon
         return None
 
@@ -220,8 +222,13 @@ class SekliItem(QGraphicsItem):
             self._yb_bas  = event.scenePos()
             self._yb_orig = (self.veri.x, self.veri.y,
                              self.veri.w, self.veri.h)
-            event.accept(); return
+            # Taşımayı engelle — boyutlandırma yapılıyor
+            self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
+            event.accept()
+            return
         self._yon = None
+        # Taşımayı aç
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
@@ -252,6 +259,8 @@ class SekliItem(QGraphicsItem):
     def mouseReleaseEvent(self, event):
         if self._yon:
             self._yon = None
+            # Taşımayı geri aç
+            self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
             self.sahne.degisti.emit()
             event.accept(); return
         super().mouseReleaseEvent(event)
@@ -548,17 +557,16 @@ class AkisSahne(QGraphicsScene):
     # ── PNG ───────────────────────────────────────────────────────────────────
     def png_render(self, dpi=200) -> bytes:
         import tempfile, os
-        # Tüm item'ların scene bounding rect'ini hesapla
+        # Sadece şekil ve ok item'larını al (tutamaçları hariç tut)
         items = [item for item in self.items()
                  if isinstance(item, (SekliItem, OkItem))]
         if items:
-            rects = [item.mapToScene(
-                         item.boundingRect()).boundingRect()
+            rects = [item.mapToScene(item.boundingRect()).boundingRect()
                      for item in items]
-            min_x = min(r.left()   for r in rects) - 30
-            min_y = min(r.top()    for r in rects) - 30
-            max_x = max(r.right()  for r in rects) + 30
-            max_y = max(r.bottom() for r in rects) + 30
+            min_x = min(r.left()   for r in rects) - 40
+            min_y = min(r.top()    for r in rects) - 40
+            max_x = max(r.right()  for r in rects) + 40
+            max_y = max(r.bottom() for r in rects) + 40
             src = QRectF(min_x, min_y, max_x - min_x, max_y - min_y)
         else:
             src = QRectF(0, 0, CANVAS_W, CANVAS_H)
