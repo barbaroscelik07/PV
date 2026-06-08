@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (
     QDialog, QWidget, QVBoxLayout, QHBoxLayout, QFrame, QLabel,
     QPushButton, QGraphicsView, QGraphicsScene, QGraphicsItem,
     QGraphicsRectItem, QGraphicsPathItem, QGraphicsLineItem,
-    QToolButton, QButtonGroup, QComboBox, QSpinBox,
+    QToolButton, QButtonGroup, QComboBox, QFontComboBox, QSpinBox,
     QTextEdit, QInputDialog, QApplication, QMessageBox,
     QFileDialog, QScrollArea, QSizePolicy
 )
@@ -61,7 +61,8 @@ TUT = 8   # tutamaç boyutu px
 class SekliVeri:
     def __init__(self, metin="", x=100.0, y=100.0, w=160.0, h=52.0,
                  kenar_renk="#1A1A1A", kenar_stil="Düz",
-                 yazi_boyut=11, yatay="orta", dikey="orta", sid=None):
+                 yazi_boyut=11, yatay="orta", dikey="orta",
+                 font_ailesi="", sid=None):
         self.id         = sid or str(uuid.uuid4())[:8]
         self.metin      = metin
         self.x = x;  self.y = y
@@ -71,6 +72,7 @@ class SekliVeri:
         self.yazi_boyut = yazi_boyut
         self.yatay = yatay
         self.dikey = dikey
+        self.font_ailesi = font_ailesi or FONT_AILESI
 
     def to_dict(self):  return self.__dict__.copy()
 
@@ -177,7 +179,9 @@ class SekliItem(QGraphicsItem):
         painter.setBrush(QBrush(QColor("white")))
         painter.drawRoundedRect(QRectF(0, 0, self.veri.w, self.veri.h), 6, 6)
         painter.setPen(QPen(QColor(self.veri.kenar_renk)))
-        painter.setFont(QFont(FONT_AILESI, self.veri.yazi_boyut))
+        painter.setFont(QFont(
+            getattr(self.veri, 'font_ailesi', FONT_AILESI),
+            self.veri.yazi_boyut))
         yf = {"sol": Qt.AlignmentFlag.AlignLeft,
               "orta": Qt.AlignmentFlag.AlignHCenter,
               "sag":  Qt.AlignmentFlag.AlignRight
@@ -377,6 +381,7 @@ class OkItem(QGraphicsItem):
 class AkisSahne(QGraphicsScene):
     degisti          = pyqtSignal()
     sekil_secildi    = pyqtSignal(object)   # SekliVeri | None
+    ok_secildi       = pyqtSignal(object)   # OkVeri | None
     mod_otomatik_sec = pyqtSignal()
 
     def __init__(self):
@@ -501,8 +506,13 @@ class AkisSahne(QGraphicsScene):
         sec = self.selectedItems()
         if sec and isinstance(sec[0], SekliItem):
             self.sekil_secildi.emit(sec[0].veri)
+            self.ok_secildi.emit(None)
+        elif sec and isinstance(sec[0], OkItem):
+            self.sekil_secildi.emit(None)
+            self.ok_secildi.emit(sec[0].veri)
         else:
             self.sekil_secildi.emit(None)
+            self.ok_secildi.emit(None)
 
     def secili_sil(self):
         self._durum_kaydet()
@@ -589,8 +599,8 @@ class AkisSahne(QGraphicsScene):
             items = [item for item in self.items()
                      if isinstance(item, (SekliItem, OkItem))]
             if items:
-                rects = [item.mapToScene(item.boundingRect()).boundingRect()
-                         for item in items]
+                # sceneBoundingRect() doğrudan sahne koordinatında bounding rect verir
+                rects = [item.sceneBoundingRect() for item in items]
                 min_x = min(r.left()   for r in rects) - 40
                 min_y = min(r.top()    for r in rects) - 40
                 max_x = max(r.right()  for r in rects) + 40
@@ -607,8 +617,9 @@ class AkisSahne(QGraphicsScene):
         img.fill(Qt.GlobalColor.white)
         p = QPainter(img)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        p.scale(sc, sc)
-        self.render(p, source=src_rect)
+        # target: tüm image, source: sahne alanı — scale otomatik hesaplanır
+        target = QRectF(0, 0, src_rect.width() * sc, src_rect.height() * sc)
+        self.render(p, target=target, source=src_rect)
         p.end()
 
         tmp = tempfile.mktemp(suffix=".png")
@@ -755,12 +766,35 @@ class OzelliklerPaneli(QWidget):
             f"font-size:12px;font-weight:bold;color:{RENK_YAZI_BIRINCIL};")
         l.addWidget(t)
 
+        # ── Şekil seçilmedi etiketi ───────────────────────────────────────────
         self.lbl_bos = QLabel("Şekil seçilmedi")
         self.lbl_bos.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.lbl_bos.setStyleSheet(
             f"font-size:11px;color:{RENK_YAZI_UCUNCUL};padding:16px 0;")
         l.addWidget(self.lbl_bos)
 
+        # ── Ok paneli (sadece ok seçilince görünür) ───────────────────────────
+        self.ok_pnl = QWidget()
+        okl = QVBoxLayout(self.ok_pnl)
+        okl.setContentsMargins(0, 0, 0, 0); okl.setSpacing(6)
+        okl.addWidget(self._lbl("Ok Seçili"))
+        lbl_ok = QLabel("Oku taşımak için sürükle.\nSilmek için Del tuşu veya aşağıdaki butonu kullan.")
+        lbl_ok.setWordWrap(True)
+        lbl_ok.setStyleSheet(f"font-size:10px;color:{RENK_YAZI_IKINCIL};")
+        okl.addWidget(lbl_ok)
+        btn_ok_sil = QPushButton("✕  Oku Sil (Del)")
+        btn_ok_sil.setStyleSheet(
+            f"QPushButton{{background:#FADBD8;color:#C0392B;"
+            f"border:1px solid #F1948A;border-radius:5px;"
+            f"font-size:11px;padding:5px;}}"
+            f"QPushButton:hover{{background:#F1948A;color:white;}}")
+        btn_ok_sil.clicked.connect(self.sil_iste)
+        okl.addWidget(btn_ok_sil)
+        okl.addStretch()
+        l.addWidget(self.ok_pnl)
+        self.ok_pnl.setVisible(False)
+
+        # ── Şekil paneli ──────────────────────────────────────────────────────
         self.pnl = QWidget()
         pl = QVBoxLayout(self.pnl)
         pl.setContentsMargins(0, 0, 0, 0); pl.setSpacing(5)
@@ -771,6 +805,13 @@ class OzelliklerPaneli(QWidget):
         self.txt.setStyleSheet(self._inp())
         self.txt.textChanged.connect(self._m)
         pl.addWidget(self.txt)
+
+        # Yazı tipi
+        pl.addWidget(self._lbl("Yazı Tipi"))
+        self.font_combo = QFontComboBox()
+        self.font_combo.setStyleSheet(self._inp())
+        self.font_combo.currentFontChanged.connect(self._ft)
+        pl.addWidget(self.font_combo)
 
         # Yatay hizalama
         pl.addWidget(self._lbl("Yatay"))
@@ -900,12 +941,18 @@ class OzelliklerPaneli(QWidget):
 
     def yukle(self, v):
         self._v = v
-        vis = isinstance(v, SekliVeri)
-        self.lbl_bos.setVisible(not vis)
-        self.pnl.setVisible(vis)
-        if not vis: return
+        is_sekil = isinstance(v, SekliVeri)
+        is_ok    = isinstance(v, OkVeri)
+        self.lbl_bos.setVisible(not is_sekil and not is_ok)
+        self.pnl.setVisible(is_sekil)
+        self.ok_pnl.setVisible(is_ok)
+        if not is_sekil: return
         self._gun = True
         self.txt.setPlainText(v.metin)
+        # Font
+        from PyQt6.QtGui import QFont as QF
+        fa = getattr(v, 'font_ailesi', FONT_AILESI)
+        self.font_combo.setCurrentFont(QF(fa))
         self.sw.setValue(int(v.w));  self.sh.setValue(int(v.h))
         self.sx.setValue(int(v.x));  self.sy.setValue(int(v.y))
         self.syb.setValue(v.yazi_boyut)
@@ -921,6 +968,10 @@ class OzelliklerPaneli(QWidget):
     def _emit(self):
         if not self._gun and self._v:
             self.degisti.emit(self._v)
+
+    def _ft(self, font):
+        if self._gun or not self._v: return
+        self._v.font_ailesi = font.family(); self._emit()
 
     def _m(self):
         if self._gun or not self._v: return
@@ -1121,6 +1172,7 @@ class AkisEditoruDialog(QDialog):
         self._sahne.degisti.connect(
             lambda: self.lbl_d.setText("● Kaydedilmemiş değişiklik"))
         self._sahne.sekil_secildi.connect(self._ozellik.yukle)
+        self._sahne.ok_secildi.connect(self._ozellik.yukle)
         self._sahne.mod_otomatik_sec.connect(self._sec_mod)
         self._ozellik.degisti.connect(self._op_degisti)
         self._ozellik.sil_iste.connect(self._sahne.secili_sil)
@@ -1163,15 +1215,43 @@ class AkisEditoruDialog(QDialog):
         self._sahne.degisti.emit()
 
     def _png(self):
-        """Kullanıcıya iki seçenek sun: tüm şema veya görünen alan."""
-        from PyQt6.QtWidgets import QMessageBox as MB
-        cevap = MB.question(
-            self, "PNG Alanı",
-            "Tüm akış şemasını mı, yoksa şu an ekranda görünen alanı mı kaydedelim?",
-            MB.StandardButton.Yes | MB.StandardButton.No | MB.StandardButton.Cancel,
-            MB.StandardButton.Yes)
+        from PyQt6.QtWidgets import QDialog, QDialogButtonBox
 
-        if cevap == MB.StandardButton.Cancel:
+        dlg = QDialog(self)
+        dlg.setWindowTitle("PNG Kaydet")
+        dlg.setFixedWidth(320)
+        dl = QVBoxLayout(dlg)
+        dl.addWidget(QLabel("Hangi alanı kaydetmek istiyorsunuz?"))
+
+        btn_tum = QPushButton("Tüm Şema (tüm kutular ve oklar)")
+        btn_tum.setStyleSheet(
+            f"QPushButton{{border:1px solid {RENK_PRIMARY};"
+            f"border-radius:5px;background:{RENK_PRIMARY_ACIK};"
+            f"color:{RENK_PRIMARY};font-size:11px;padding:8px;}}"
+            f"QPushButton:hover{{background:{RENK_PRIMARY};color:white;}}")
+
+        btn_gorunen = QPushButton("Şu An Ekranda Görünen Alan")
+        btn_gorunen.setStyleSheet(
+            f"QPushButton{{border:1px solid {RENK_KENARLIK};"
+            f"border-radius:5px;background:{RENK_BG_IKINCIL};"
+            f"color:{RENK_YAZI_BIRINCIL};font-size:11px;padding:8px;}}"
+            f"QPushButton:hover{{background:{RENK_PRIMARY_ACIK};}}")
+
+        btn_iptal = QPushButton("İptal")
+        btn_iptal.setStyleSheet(
+            f"QPushButton{{border:none;font-size:10px;"
+            f"color:{RENK_YAZI_UCUNCUL};padding:4px;}}")
+
+        dl.addWidget(btn_tum)
+        dl.addWidget(btn_gorunen)
+        dl.addWidget(btn_iptal)
+
+        secim = [None]
+        btn_tum.clicked.connect(lambda: (secim.__setitem__(0, "tum"), dlg.accept()))
+        btn_gorunen.clicked.connect(lambda: (secim.__setitem__(0, "gorunen"), dlg.accept()))
+        btn_iptal.clicked.connect(dlg.reject)
+
+        if dlg.exec() != QDialog.DialogCode.Accepted or secim[0] is None:
             return
 
         dosya, _ = QFileDialog.getSaveFileName(
@@ -1179,18 +1259,15 @@ class AkisEditoruDialog(QDialog):
         if not dosya:
             return
 
-        if cevap == MB.StandardButton.Yes:
-            # Tüm şema
+        if secim[0] == "tum":
             self._sahne.png_kaydet(dosya, src_rect=None, dpi=200)
         else:
-            # Görünen alan
             gorunen = self._canvas.mapToScene(
                 self._canvas.viewport().rect()).boundingRect()
             self._sahne.png_kaydet(dosya, src_rect=gorunen, dpi=200)
 
-        QMessageBox.information(
-            self, "Kaydedildi",
-            f"Akış şeması kaydedildi:\n{dosya}")
+        QMessageBox.information(self, "Kaydedildi",
+                                f"PNG kaydedildi:\n{dosya}")
 
     def _kaydet(self):
         self.kaydedildi.emit(self._sahne.to_data())
