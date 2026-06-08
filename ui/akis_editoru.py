@@ -345,7 +345,8 @@ class OkItem(QGraphicsPathItem):
 
 class AkisSahne(QGraphicsScene):
     degisti = pyqtSignal()
-    sekil_secildi = pyqtSignal(object)  # SekliVeri veya None
+    sekil_secildi = pyqtSignal(object)
+    mod_otomatik_sec = pyqtSignal()  # Şekil eklendikten sonra Seç moduna geç
 
     def __init__(self):
         super().__init__(0, 0, CANVAS_W, CANVAS_H)
@@ -423,8 +424,7 @@ class AkisSahne(QGraphicsScene):
             self.addItem(self._gecici_ok)
             return
 
-        # Şekil ekle
-        self._durum_kaydet()
+        # Şekil ekle — bir kez ekle, sonra otomatik Seç moduna geç
         tip_map = {
             MOD_DIKDORT: ("dikdortgen", 160, 50),
             MOD_ELMAS:   ("elmas",      140, 70),
@@ -435,9 +435,17 @@ class AkisSahne(QGraphicsScene):
             tip, w, h = tip_map[self._mod]
             x = self._izgara_yapistir(pos.x() - w/2)
             y = self._izgara_yapistir(pos.y() - h/2)
+            self._durum_kaydet()
             veri = SekliVeri(tip=tip, metin="Metin",
                              x=x, y=y, w=w, h=h)
             self._sekil_ekle(veri)
+            # Eklenen şekli seç
+            self.clearSelection()
+            if veri.id in self._sekil_items:
+                self._sekil_items[veri.id].setSelected(True)
+            # Otomatik Seç moduna geç
+            self._mod = MOD_SEC
+            self.mod_otomatik_sec.emit()
             self.degisti.emit()
 
     def mouseMoveEvent(self, event):
@@ -881,7 +889,7 @@ class AracCubugu(QFrame):
             (MOD_METIN,   "T",  "Metin Kutusu"),
             (None,        None, None),  # ayraç
             (MOD_OK,      "→",  "Ok Çiz"),
-            (MOD_CIZGI,   "⌐",  "L-Ok Çiz"),
+
         ]
 
         for mod, ikon, tooltip in araclar:
@@ -957,6 +965,13 @@ class AracCubugu(QFrame):
             border-color:{RENK_PRIMARY};color:{RENK_PRIMARY};}}
         """
 
+    def sec_modunu_sec(self):
+        """Seç butonunu aktif yap."""
+        for btn in self._mod_grup.buttons():
+            if btn.toolTip() and "Seç" in btn.toolTip():
+                btn.setChecked(True)
+                break
+
 
 # ─── Sol Palet ────────────────────────────────────────────────────────────────
 
@@ -979,19 +994,28 @@ class SolPalet(QFrame):
             (MOD_METIN,   "T", "Metin"),
         ]
         oklar = [
-            (MOD_OK,    "→", "Düz Ok"),
-            (MOD_CIZGI, "⌐", "L-Ok"),
+            (MOD_OK, "→", "Düz Ok"),
         ]
 
+        self._palet_butonlar: list = []
         self._sec_label("Şekil", l)
         for mod, ikon, ad in sekiller:
-            l.addWidget(self._palet_btn(mod, ikon, ad))
+            btn = self._palet_btn(mod, ikon, ad)
+            self._palet_butonlar.append(btn)
+            l.addWidget(btn)
 
         self._sec_label("Ok", l)
         for mod, ikon, ad in oklar:
-            l.addWidget(self._palet_btn(mod, ikon, ad))
+            btn = self._palet_btn(mod, ikon, ad)
+            self._palet_butonlar.append(btn)
+            l.addWidget(btn)
 
         l.addStretch()
+
+    def sec_modunu_temizle(self):
+        """Tüm palet butonlarının seçimini kaldır."""
+        for btn in self._palet_butonlar:
+            btn.setChecked(False)
 
     def _sec_label(self, txt, layout):
         lbl = QLabel(txt)
@@ -1002,31 +1026,29 @@ class SolPalet(QFrame):
         layout.addWidget(lbl)
 
     def _palet_btn(self, mod, ikon, ad):
-        btn = QPushButton()
+        btn = QPushButton(f"{ikon}\n{ad}")
         btn.setFixedSize(58, 50)
         btn.setToolTip(ad)
+        btn.setCheckable(True)
         btn.setStyleSheet(f"""
             QPushButton{{
                 border:1px solid {RENK_KENARLIK};border-radius:6px;
                 background:{RENK_BG_IKINCIL};
-                font-size:18px;color:{RENK_YAZI_BIRINCIL};
+                font-size:11px;color:{RENK_YAZI_BIRINCIL};
+                text-align:center;
             }}
             QPushButton:hover{{
                 background:{RENK_PRIMARY_ACIK};
                 border-color:{RENK_PRIMARY};
                 color:{RENK_PRIMARY};
             }}
+            QPushButton:checked{{
+                background:{RENK_PRIMARY_ACIK};
+                border-color:{RENK_PRIMARY};
+                color:{RENK_PRIMARY};
+                font-weight:bold;
+            }}
         """)
-        # İkon + metin
-        from PyQt6.QtWidgets import QVBoxLayout as QVL
-        inner = QWidget(btn)
-        il = QVL(inner); il.setContentsMargins(0,4,0,4); il.setSpacing(1)
-        lbl_i = QLabel(ikon); lbl_i.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lbl_i.setStyleSheet("font-size:16px;border:none;background:transparent;")
-        lbl_t = QLabel(ad); lbl_t.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lbl_t.setStyleSheet(f"font-size:8px;border:none;background:transparent;color:{RENK_YAZI_IKINCIL};")
-        il.addWidget(lbl_i); il.addWidget(lbl_t)
-        inner.setGeometry(0, 0, 58, 50)
         btn.clicked.connect(lambda: self.sekil_ekle.emit(mod))
         return btn
 
@@ -1125,7 +1147,7 @@ class AkisEditoruDialog(QDialog):
         layout.addWidget(alt)
 
         # Bağlantılar
-        self._arac.mod_degisti.connect(self._canvas.set_mod)
+        self._arac.mod_degisti.connect(self._mod_degis)
         self._arac.geri_al.connect(self._sahne.geri_al)
         self._arac.izgara_toggled.connect(self._izgara_toggle)
         self._arac.zoom_in.connect(lambda: self._canvas.scale(1.2, 1.2))
@@ -1133,14 +1155,25 @@ class AkisEditoruDialog(QDialog):
         self._arac.zoom_sifirla.connect(lambda: self._canvas.fitInView(
             QRectF(0,0,CANVAS_W,CANVAS_H), Qt.AspectRatioMode.KeepAspectRatio))
         self._arac.png_aktar.connect(self._png_aktar)
-        self._palet.sekil_ekle.connect(self._canvas.set_mod)
+        self._palet.sekil_ekle.connect(self._mod_degis)
         self._sahne.degisti.connect(
             lambda: self.lbl_durum.setText("● Kaydedilmemiş değişiklik"))
         self._sahne.sekil_secildi.connect(self._ozellikler.yukle)
         self._ozellikler.degisti.connect(self._ozellik_degisti)
+        # Şekil eklendikten sonra otomatik Seç moduna geç
+        self._sahne.mod_otomatik_sec.connect(self._sec_moduna_gec)
 
         if data:
             self._sahne.yukle(data)
+
+    def _mod_degis(self, mod: str):
+        self._canvas.set_mod(mod)
+
+    def _sec_moduna_gec(self):
+        """Şekil eklendikten sonra Seç moduna dön."""
+        self._canvas.set_mod(MOD_SEC)
+        self._arac.sec_modunu_sec()
+        self._palet.sec_modunu_temizle()
 
     def _izgara_toggle(self, aktif: bool):
         self._sahne._izgara_aktif = aktif
