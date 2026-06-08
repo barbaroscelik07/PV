@@ -199,6 +199,14 @@ class SekliItem(QGraphicsItem):
                 self._tutamac_guncelle()
             for t in self._tutamaclar.values():
                 t.setVisible(show)
+            # Seçim değişince panele doğrudan bildir
+            # (selectionChanged gecikmeli olabilir — burada kesin)
+            if show:
+                self.sahne.sekil_secildi.emit(self.veri)
+            else:
+                # Deselect: diğer item seçili değilse paneli kapat
+                # selectionChanged halleder
+                pass
         elif change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged:
             self.veri.x = self.pos().x()
             self.veri.y = self.pos().y()
@@ -283,7 +291,8 @@ class OkItem(QGraphicsItem):
         self._tas_bas  = None   # taşıma başlangıcı
         self._tas_orig = None
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
-        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
         self.setZValue(-1)
         self.setAcceptHoverEvents(True)
 
@@ -353,7 +362,12 @@ class OkItem(QGraphicsItem):
         if event.button() == Qt.MouseButton.LeftButton:
             # Önce seçimi Qt'ye bırak
             super().mousePressEvent(event)
-            # Sonra taşıma state'i kur
+            # Panele doğrudan bildir
+            s = self.scene()
+            if s and hasattr(s, 'ok_secildi'):
+                s.sekil_secildi.emit(None)
+                s.ok_secildi.emit(self.veri)
+            # Taşıma state'i kur
             self._tas_bas  = event.scenePos()
             self._tas_orig = (self.veri.x1, self.veri.y1,
                               self.veri.x2, self.veri.y2)
@@ -381,6 +395,20 @@ class OkItem(QGraphicsItem):
             event.accept()
             return
         super().mouseReleaseEvent(event)
+
+    def itemChange(self, change, value):
+        if change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged:
+            # Qt native taşıma — pos değişimini veri modeline yansıt
+            delta = self.pos()
+            if delta.x() != 0 or delta.y() != 0:
+                self.veri.x1 += delta.x(); self.veri.y1 += delta.y()
+                self.veri.x2 += delta.x(); self.veri.y2 += delta.y()
+                self.setPos(0, 0)  # pos'u sıfırla, koordinatlar veri'de
+                self.prepareGeometryChange()
+            s = self.scene()
+            if s and hasattr(s, 'degisti'):
+                s.degisti.emit()
+        return super().itemChange(change, value)
 
     def guncelle(self):
         self.prepareGeometryChange()
@@ -696,24 +724,36 @@ class AkisSahne(QGraphicsScene):
         return self._render_rect(self._hesapla_src_rect(), dpi)
 
     def png_render_sayfalar(self, dpi: int = 200) -> list[bytes]:
-        """Her A4 sayfası için ayrı PNG — her sayfa tam A4 boyutunda render edilir.
-        Son sayfa yarım kalsa bile içerik tam A4'e scale edilir.
-        Böylece tüm sayfalar Word'de aynı boyutta görünür."""
+        """Her A4 sayfası için ayrı PNG.
+        - Her sayfa tam A4 piksel boyutunda çıkar (tüm sayfalar Word'de eşit boyut)
+        - Son sayfa yarım kalsa: sadece dolu kısım alınır, tam A4'e scale edilir
+        - Böylece boş alan dahil edilmez, ama boyut tutarlı kalır
+        """
         import tempfile, os
-        src = self._hesapla_src_rect()
-        sc  = dpi / 96.0
-        # Her zaman tam A4 piksel boyutu
-        img_w = max(1, int(A4_W * sc))
-        img_h = max(1, int(A4_H * sc))
+        icerik = self._hesapla_src_rect()  # tüm içeriğin bounding rect
+        sc     = dpi / 96.0
+        img_w  = max(1, int(A4_W * sc))
+        img_h  = max(1, int(A4_H * sc))
         sayfalar = []
-        y = src.top()
-        while y < src.bottom():
-            # Bu sayfanın kaynak alanı (yarım sayfa olabilir)
-            kaynak_h = min(A4_H, src.bottom() - y)
+        sayfa_no = 0
+        while True:
+            sayfa_y_bas = sayfa_no * A4_H   # bu sayfanın başlangıcı
+            sayfa_y_bit = sayfa_y_bas + A4_H  # bu sayfanın sonu (tam A4)
+            # İçerik bu sayfada bitiyorsa veya başlıyorsa
+            if sayfa_y_bas >= icerik.bottom():
+                break  # artık içerik yok
+            # Bu sayfada içerik ne kadar var?
+            # Sol: sütunların başından, Sağ: sütunların sonuna
+            kaynak_y_bas = sayfa_y_bas
+            kaynak_y_bit = min(sayfa_y_bit, icerik.bottom())
+            kaynak_h = kaynak_y_bit - kaynak_y_bas
             if kaynak_h < 5:
-                break
-            kaynak = QRectF(src.left(), y, src.width(), kaynak_h)
-            # Hedef: her zaman tam A4 piksel boyutu — Qt scale yapar
+                sayfa_no += 1
+                continue
+            # Kaynak rect: bu sayfanın dolu kısmı
+            kaynak = QRectF(0, kaynak_y_bas, A4_W, kaynak_h)
+            # Hedef: tam A4 piksel — Qt kaynak'ı hedefe scale eder
+            # Yarım sayfa → tam A4'e uzatılır → tüm sayfalar aynı boyut
             img = QImage(img_w, img_h, QImage.Format.Format_ARGB32)
             img.fill(Qt.GlobalColor.white)
             p = QPainter(img)
@@ -726,7 +766,7 @@ class AkisSahne(QGraphicsScene):
             with open(tmp, "rb") as f: data = f.read()
             os.unlink(tmp)
             sayfalar.append(data)
-            y += A4_H
+            sayfa_no += 1
         return sayfalar if sayfalar else [self.png_render_tum(dpi)]
 
     def png_kaydet_tum(self, dosya: str, dpi: int = 200):
