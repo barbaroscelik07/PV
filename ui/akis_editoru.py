@@ -696,18 +696,38 @@ class AkisSahne(QGraphicsScene):
         return self._render_rect(self._hesapla_src_rect(), dpi)
 
     def png_render_sayfalar(self, dpi: int = 200) -> list[bytes]:
-        """Her A4 sayfası için ayrı PNG döner."""
+        """Her A4 sayfası için ayrı PNG — her sayfa tam A4 boyutunda render edilir.
+        Son sayfa yarım kalsa bile içerik tam A4'e scale edilir.
+        Böylece tüm sayfalar Word'de aynı boyutta görünür."""
+        import tempfile, os
         src = self._hesapla_src_rect()
+        sc  = dpi / 96.0
+        # Her zaman tam A4 piksel boyutu
+        img_w = max(1, int(A4_W * sc))
+        img_h = max(1, int(A4_H * sc))
         sayfalar = []
-        y = 0
+        y = src.top()
         while y < src.bottom():
-            sayfa_rect = QRectF(src.left(), y,
-                                src.width(),
-                                min(A4_H, src.bottom() - y))
-            if sayfa_rect.height() > 10:
-                sayfalar.append(self._render_rect(sayfa_rect, dpi))
+            # Bu sayfanın kaynak alanı (yarım sayfa olabilir)
+            kaynak_h = min(A4_H, src.bottom() - y)
+            if kaynak_h < 5:
+                break
+            kaynak = QRectF(src.left(), y, src.width(), kaynak_h)
+            # Hedef: her zaman tam A4 piksel boyutu — Qt scale yapar
+            img = QImage(img_w, img_h, QImage.Format.Format_ARGB32)
+            img.fill(Qt.GlobalColor.white)
+            p = QPainter(img)
+            p.setRenderHint(QPainter.RenderHint.Antialiasing)
+            target = QRectF(0, 0, img_w, img_h)
+            self.render(p, target=target, source=kaynak)
+            p.end()
+            tmp = tempfile.mktemp(suffix=".png")
+            img.save(tmp)
+            with open(tmp, "rb") as f: data = f.read()
+            os.unlink(tmp)
+            sayfalar.append(data)
             y += A4_H
-        return sayfalar if sayfalar else [self._render_rect(src, dpi)]
+        return sayfalar if sayfalar else [self.png_render_tum(dpi)]
 
     def png_kaydet_tum(self, dosya: str, dpi: int = 200):
         with open(dosya, "wb") as f:
@@ -760,18 +780,21 @@ class AkisCanvas(QGraphicsView):
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
             item = self.itemAt(event.pos())
-            # Başlık item'larına tıklanınca pan başlatma
             gercek = item
             if isinstance(item, Tutamac):
                 gercek = item.parentItem()
-            if (gercek is None or
-                    (hasattr(gercek, 'zValue') and gercek.zValue() <= -4)):
-                if self._sahne._mod == MOD_SEC:
-                    self._pan_aktif = True
-                    self._pan_bas   = event.pos()
-                    self.setCursor(Qt.CursorShape.ClosedHandCursor)
-                    event.accept()
-                    return
+            # Boş alana veya başlık item'ına tıklandıysa pan başlat
+            bos_alan = (gercek is None or
+                        (hasattr(gercek, 'zValue') and gercek.zValue() <= -4))
+            if bos_alan and self._sahne._mod == MOD_SEC:
+                self._pan_aktif = True
+                self._pan_bas   = event.pos()
+                self.setCursor(Qt.CursorShape.ClosedHandCursor)
+                # super() çağır ki sahne seçimi temizlesin
+                super().mousePressEvent(event)
+                event.accept()
+                return
+        # Her durumda super() çağır — item seçimi ve Ctrl+tıkla Qt'ye bırakılır
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
