@@ -89,6 +89,8 @@ class SekliVeri:
         self.kenar_renk = kenar_renk
         self.kenar_stil = kenar_stil
         self.yazi_boyut = yazi_boyut
+        self.yazi_hizala_yatay = "orta"   # sol / orta / sag
+        self.yazi_hizala_dikey = "orta"   # ust / orta / alt
 
     def to_dict(self):
         return self.__dict__.copy()
@@ -196,9 +198,21 @@ class SekliItem(QGraphicsItem):
         painter.setPen(QPen(QColor(self.veri.kenar_renk)))
         font = QFont(FONT_AILESI, self.veri.yazi_boyut)
         painter.setFont(font)
+        yatay = {
+            "sol":  Qt.AlignmentFlag.AlignLeft,
+            "orta": Qt.AlignmentFlag.AlignHCenter,
+            "sag":  Qt.AlignmentFlag.AlignRight,
+        }.get(getattr(self.veri,'yazi_hizala_yatay','orta'),
+              Qt.AlignmentFlag.AlignHCenter)
+        dikey = {
+            "ust":  Qt.AlignmentFlag.AlignTop,
+            "orta": Qt.AlignmentFlag.AlignVCenter,
+            "alt":  Qt.AlignmentFlag.AlignBottom,
+        }.get(getattr(self.veri,'yazi_hizala_dikey','orta'),
+              Qt.AlignmentFlag.AlignVCenter)
         painter.drawText(
-            QRectF(4, 4, w-8, h-8),
-            Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap,
+            QRectF(6, 4, w-12, h-8),
+            yatay | dikey | Qt.TextFlag.TextWordWrap,
             self.veri.metin
         )
 
@@ -310,27 +324,66 @@ class OkItem(QGraphicsPathItem):
         x1, y1, x2, y2 = self.veri.x1, self.veri.y1, self.veri.x2, self.veri.y2
         path = QPainterPath()
         path.moveTo(x1, y1)
-
         tip = self.veri.tip
+
+        # Son yön için ok başı hesabı
+        ok_ux, ok_uy = 0.0, 1.0  # varsayılan: aşağı
+
         if tip == "l":
+            # L-ok: önce yatay sonra dikey
             path.lineTo(x2, y1)
             path.lineTo(x2, y2)
+            dx_son = 0; dy_son = y2 - y1
+        elif tip == "duz":
+            # Düz: en büyük eksende git (yatay veya dikey)
+            dx = abs(x2 - x1); dy = abs(y2 - y1)
+            if dx >= dy:
+                # Yatay
+                path.lineTo(x2, y1)
+                dx_son = x2 - x1; dy_son = 0
+            else:
+                # Dikey
+                path.lineTo(x1, y2)
+                # Son noktayı güncelle
+                x2_eff, y2_eff = x1, y2
+                path2 = QPainterPath(); path2.moveTo(x1, y1)
+                path2.lineTo(x1, y2)
+                dx_son = 0; dy_son = y2 - y1
+                # Ok başı
+                uzunluk = abs(dy_son) if dy_son != 0 else 1
+                ok_ux = 0; ok_uy = dy_son / uzunluk
+                ok_basi = QPainterPath()
+                ok_basi.moveTo(x1, y2)
+                ok_basi.lineTo(x1 - 10*ok_ux - 5*ok_uy, y2 - 10*ok_uy + 5*ok_ux)
+                ok_basi.lineTo(x1 + 5*ok_uy - 10*ok_ux, y2 - 5*ok_ux - 10*ok_uy)
+                ok_basi.closeSubpath()
+                path2.addPath(ok_basi)
+                self.setPath(path2)
+                renk = RENK_PRIMARY if self.isSelected() else "#455A64"
+                self.setPen(QPen(QColor(renk), 1.8))
+                self.setBrush(QBrush(QColor("#455A64")))
+                return
         else:
             path.lineTo(x2, y2)
+            dx_son = x2 - x1; dy_son = y2 - y1
 
         # Ok başı
-        dx = x2 - (x2 if tip == "l" else x1)
-        dy = y2 - y1
-        uzunluk = math.sqrt(dx*dx + dy*dy) if (dx != 0 or dy != 0) else 1
-        if uzunluk > 0:
-            ux = (dx / uzunluk) if tip != "l" else 0
-            uy = dy / uzunluk
-            ok_basi = QPainterPath()
-            ok_basi.moveTo(x2, y2)
-            ok_basi.lineTo(x2 - 10*ux - 5*uy, y2 - 10*uy + 5*ux)
-            ok_basi.lineTo(x2 - 10*ux + 5*uy, y2 - 10*uy - 5*ux)
-            ok_basi.closeSubpath()
-            path.addPath(ok_basi)
+        uzunluk = math.sqrt(dx_son**2 + dy_son**2) if (dx_son != 0 or dy_son != 0) else 1
+        ok_ux = dx_son / uzunluk; ok_uy = dy_son / uzunluk
+        # Uç nokta
+        if tip == "l":
+            ux, uy = x2, y2
+        elif tip == "duz" and abs(x2 - x1) >= abs(y2 - y1):
+            ux, uy = x2, y1
+        else:
+            ux, uy = x2, y2
+
+        ok_basi = QPainterPath()
+        ok_basi.moveTo(ux, uy)
+        ok_basi.lineTo(ux - 10*ok_ux - 5*ok_uy, uy - 10*ok_uy + 5*ok_ux)
+        ok_basi.lineTo(ux - 10*ok_ux + 5*ok_uy, uy - 10*ok_uy - 5*ok_ux)
+        ok_basi.closeSubpath()
+        path.addPath(ok_basi)
 
         self.setPath(path)
         renk = RENK_PRIMARY if self.isSelected() else "#455A64"
@@ -638,6 +691,57 @@ class AkisCanvas(QGraphicsView):
         factor = 1.15 if event.angleDelta().y() > 0 else 0.87
         self.scale(factor, factor)
 
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.MiddleButton:
+            self._pan_son = event.pos()
+            self.setCursor(Qt.CursorShape.ClosedHandCursor)
+            event.accept(); return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if hasattr(self, '_pan_son') and self._pan_son is not None:
+            delta = event.pos() - self._pan_son
+            self._pan_son = event.pos()
+            self.horizontalScrollBar().setValue(
+                self.horizontalScrollBar().value() - delta.x())
+            self.verticalScrollBar().setValue(
+                self.verticalScrollBar().value() - delta.y())
+            event.accept(); return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MouseButton.MiddleButton:
+            self._pan_son = None
+            self.setCursor(Qt.CursorShape.ArrowCursor)
+            event.accept(); return
+        super().mouseReleaseEvent(event)
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_Space and not event.isAutoRepeat():
+            self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
+            self.setCursor(Qt.CursorShape.OpenHandCursor)
+            event.accept(); return
+        sahne = self.scene()
+        if event.matches(QKeySequence.StandardKey.Undo):
+            sahne.geri_al()
+        elif event.key() == Qt.Key.Key_Delete:
+            sahne.secili_sil()
+        elif (event.key() == Qt.Key.Key_D and
+              event.modifiers() == Qt.KeyboardModifier.ControlModifier):
+            sahne.secili_cogalt()
+        else:
+            super().keyPressEvent(event)
+
+    def keyReleaseEvent(self, event):
+        if event.key() == Qt.Key.Key_Space:
+            mod = self.scene()._mod
+            if mod == MOD_SEC:
+                self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
+            else:
+                self.setDragMode(QGraphicsView.DragMode.NoDrag)
+            self.setCursor(Qt.CursorShape.ArrowCursor)
+        super().keyReleaseEvent(event)
+
     def set_mod(self, mod: str):
         self.scene().set_mod(mod)
         if mod == MOD_SEC:
@@ -650,24 +754,13 @@ class AkisCanvas(QGraphicsView):
             self.setDragMode(QGraphicsView.DragMode.NoDrag)
             self.setCursor(Qt.CursorShape.CrossCursor)
 
-    def keyPressEvent(self, event):
-        sahne = self.scene()
-        if event.matches(QKeySequence.StandardKey.Undo):
-            sahne.geri_al()
-        elif event.key() == Qt.Key.Key_Delete:
-            sahne.secili_sil()
-        elif event.matches(QKeySequence.StandardKey.Copy) or (
-                event.key() == Qt.Key.Key_D and
-                event.modifiers() == Qt.KeyboardModifier.ControlModifier):
-            sahne.secili_cogalt()
-        else:
-            super().keyPressEvent(event)
-
 
 # ─── Sağ Özellikler Paneli ───────────────────────────────────────────────────
 
 class OzelliklerPaneli(QWidget):
     degisti = pyqtSignal(object)  # SekliVeri
+    sil_istendi = pyqtSignal()
+    cogalt_istendi = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -699,6 +792,41 @@ class OzelliklerPaneli(QWidget):
         self.txt_metin.setStyleSheet(self._input_stil())
         self.txt_metin.textChanged.connect(self._metin_degisti)
         pl.addWidget(self.txt_metin)
+
+        # Metin Hizalama
+        pl.addWidget(self._etiket("Yatay Hizalama"))
+        yatay_w = QWidget(); yl = QHBoxLayout(yatay_w)
+        yl.setContentsMargins(0,0,0,0); yl.setSpacing(3)
+        self._yatay_grup = QButtonGroup(self)
+        self._yatay_grup.setExclusive(True)
+        for ikon, deger, tooltip in [("≡L","sol","Sola hizala"),
+                                      ("≡","orta","Ortala"),
+                                      ("≡R","sag","Sağa hizala")]:
+            btn = QPushButton(ikon); btn.setFixedSize(44, 24)
+            btn.setToolTip(tooltip); btn.setCheckable(True)
+            btn.setStyleSheet(self._hizala_btn_stil())
+            btn.clicked.connect(lambda _, d=deger: self._yatay_hizala(d))
+            self._yatay_grup.addButton(btn)
+            yl.addWidget(btn)
+            setattr(self, f'btn_yatay_{deger}', btn)
+        pl.addWidget(yatay_w)
+
+        pl.addWidget(self._etiket("Dikey Hizalama"))
+        dikey_w = QWidget(); dl = QHBoxLayout(dikey_w)
+        dl.setContentsMargins(0,0,0,0); dl.setSpacing(3)
+        self._dikey_grup = QButtonGroup(self)
+        self._dikey_grup.setExclusive(True)
+        for ikon, deger, tooltip in [("⬆","ust","Üste hizala"),
+                                      ("↕","orta","Ortala"),
+                                      ("⬇","alt","Alta hizala")]:
+            btn = QPushButton(ikon); btn.setFixedSize(44, 24)
+            btn.setToolTip(tooltip); btn.setCheckable(True)
+            btn.setStyleSheet(self._hizala_btn_stil())
+            btn.clicked.connect(lambda _, d=deger: self._dikey_hizala(d))
+            self._dikey_grup.addButton(btn)
+            dl.addWidget(btn)
+            setattr(self, f'btn_dikey_{deger}', btn)
+        pl.addWidget(dikey_w)
 
         # Boyut
         pl.addWidget(self._etiket("Genişlik × Yükseklik"))
@@ -768,15 +896,18 @@ class OzelliklerPaneli(QWidget):
             QPushButton:hover{{background:{RENK_PRIMARY_ACIK};
             color:{RENK_PRIMARY};}}
         """)
+        btn_kopyala.clicked.connect(self.cogalt_istendi)
         pl.addWidget(btn_kopyala)
 
-        btn_sil = QPushButton("✕  Sil (Del)")
-        btn_sil.setStyleSheet(f"""
+        self.btn_sil = QPushButton("✕  Sil (Del)")
+        self.btn_sil.setStyleSheet(f"""
             QPushButton{{border:1px solid #F1948A;border-radius:5px;
-            background:#FADBD8;color:#C0392B;font-size:11px;padding:5px;}}
+            background:#FADBD8;color:#C0392B;font-size:11px;
+            font-weight:bold;padding:5px;}}
             QPushButton:hover{{background:#F1948A;color:white;}}
         """)
-        pl.addWidget(btn_sil)
+        self.btn_sil.clicked.connect(self.sil_istendi)
+        pl.addWidget(self.btn_sil)
         pl.addStretch()
 
         l.addWidget(self.lbl_bos)
@@ -784,6 +915,16 @@ class OzelliklerPaneli(QWidget):
         l.addStretch()
 
         self.panel.setVisible(False)
+
+    def _hizala_btn_stil(self):
+        return f"""
+            QPushButton{{border:1px solid {RENK_KENARLIK};border-radius:4px;
+            background:{RENK_BG_IKINCIL};color:{RENK_YAZI_BIRINCIL};
+            font-size:11px;padding:2px;}}
+            QPushButton:checked{{background:{RENK_PRIMARY_ACIK};
+            border-color:{RENK_PRIMARY};color:{RENK_PRIMARY};font-weight:bold;}}
+            QPushButton:hover{{background:{RENK_PRIMARY_ACIK};}}
+        """
 
     def _etiket(self, txt):
         lbl = QLabel(txt)
@@ -819,9 +960,25 @@ class OzelliklerPaneli(QWidget):
         for renk, btn in self._renk_butonlar.items():
             btn.setChecked(renk == veri.kenar_renk)
         idx = self.combo_stil.findText(veri.kenar_stil)
-        if idx >= 0:
-            self.combo_stil.setCurrentIndex(idx)
+        if idx >= 0: self.combo_stil.setCurrentIndex(idx)
+        # Hizalama
+        yh = getattr(veri, 'yazi_hizala_yatay', 'orta')
+        dh = getattr(veri, 'yazi_hizala_dikey', 'orta')
+        for d in ['sol','orta','sag']:
+            getattr(self, f'btn_yatay_{d}').setChecked(d == yh)
+        for d in ['ust','orta','alt']:
+            getattr(self, f'btn_dikey_{d}').setChecked(d == dh)
         self._guncelleniyor = False
+
+    def _yatay_hizala(self, deger: str):
+        if self._guncelleniyor or not self._veri: return
+        self._veri.yazi_hizala_yatay = deger
+        self.degisti.emit(self._veri)
+
+    def _dikey_hizala(self, deger: str):
+        if self._guncelleniyor or not self._veri: return
+        self._veri.yazi_hizala_dikey = deger
+        self.degisti.emit(self._veri)
 
     def _metin_degisti(self):
         if self._guncelleniyor or not self._veri: return
@@ -994,7 +1151,8 @@ class SolPalet(QFrame):
             (MOD_METIN,   "T", "Metin"),
         ]
         oklar = [
-            (MOD_OK, "→", "Düz Ok"),
+            (MOD_OK,    "→", "Düz Ok"),
+            (MOD_CIZGI, "⌐", "L-Ok"),
         ]
 
         self._palet_butonlar: list = []
@@ -1160,11 +1318,14 @@ class AkisEditoruDialog(QDialog):
             lambda: self.lbl_durum.setText("● Kaydedilmemiş değişiklik"))
         self._sahne.sekil_secildi.connect(self._ozellikler.yukle)
         self._ozellikler.degisti.connect(self._ozellik_degisti)
+        self._ozellikler.sil_istendi.connect(self._sahne.secili_sil)
+        self._ozellikler.cogalt_istendi.connect(self._sahne.secili_cogalt)
         # Şekil eklendikten sonra otomatik Seç moduna geç
         self._sahne.mod_otomatik_sec.connect(self._sec_moduna_gec)
 
         if data:
             self._sahne.yukle(data)
+        self.showMaximized()
 
     def _mod_degis(self, mod: str):
         self._canvas.set_mod(mod)
