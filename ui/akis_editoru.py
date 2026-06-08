@@ -288,8 +288,6 @@ class OkItem(QGraphicsItem):
     def __init__(self, veri: OkVeri):
         super().__init__()
         self.veri  = veri
-        self._tas_bas  = None   # taşıma başlangıcı
-        self._tas_orig = None
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
@@ -360,40 +358,20 @@ class OkItem(QGraphicsItem):
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
-            # Önce seçimi Qt'ye bırak
             super().mousePressEvent(event)
             # Panele doğrudan bildir
             s = self.scene()
             if s and hasattr(s, 'ok_secildi'):
                 s.sekil_secildi.emit(None)
                 s.ok_secildi.emit(self.veri)
-            # Taşıma state'i kur
-            self._tas_bas  = event.scenePos()
-            self._tas_orig = (self.veri.x1, self.veri.y1,
-                              self.veri.x2, self.veri.y2)
             event.accept()
             return
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
-        if self._tas_bas is not None:
-            d = event.scenePos() - self._tas_bas
-            ox1, oy1, ox2, oy2 = self._tas_orig
-            self.veri.x1 = ox1 + d.x(); self.veri.y1 = oy1 + d.y()
-            self.veri.x2 = ox2 + d.x(); self.veri.y2 = oy2 + d.y()
-            self.prepareGeometryChange()
-            self.update()
-            event.accept()
-            return
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
-        if self._tas_bas is not None:
-            self._tas_bas = None
-            s = self.scene()
-            if s: s.degisti.emit()
-            event.accept()
-            return
         super().mouseReleaseEvent(event)
 
     def itemChange(self, change, value):
@@ -818,23 +796,30 @@ class AkisCanvas(QGraphicsView):
         self.scale(f, f)
 
     def mousePressEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton:
-            item = self.itemAt(event.pos())
-            gercek = item
-            if isinstance(item, Tutamac):
-                gercek = item.parentItem()
-            # Boş alana veya başlık item'ına tıklandıysa pan başlat
-            bos_alan = (gercek is None or
-                        (hasattr(gercek, 'zValue') and gercek.zValue() <= -4))
-            if bos_alan and self._sahne._mod == MOD_SEC:
-                self._pan_aktif = True
-                self._pan_bas   = event.pos()
-                self.setCursor(Qt.CursorShape.ClosedHandCursor)
-                # super() çağır ki sahne seçimi temizlesin
-                super().mousePressEvent(event)
-                event.accept()
-                return
-        # Her durumda super() çağır — item seçimi ve Ctrl+tıkla Qt'ye bırakılır
+        if event.button() != Qt.MouseButton.LeftButton:
+            super().mousePressEvent(event); return
+
+        item = self.itemAt(event.pos())
+        # Gerçek item — tutamaç ise parent'ı al
+        gercek = item
+        if isinstance(item, Tutamac):
+            gercek = item.parentItem()
+
+        # Başlık item'ları (zValue <= -4) ve boş alan → pan
+        bos_alan = (gercek is None or
+                    (hasattr(gercek, 'zValue') and gercek.zValue() <= -4))
+
+        if bos_alan and self._sahne._mod == MOD_SEC:
+            self._pan_aktif = True
+            self._pan_bas   = event.pos()
+            self.setCursor(Qt.CursorShape.ClosedHandCursor)
+            # Seçimi temizle
+            self._sahne.clearSelection()
+            event.accept()
+            return
+
+        # Item var veya çizim modu → event'i sahneye ilet
+        # NoDrag modunda bunu manuel yapmak gerekiyor
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
